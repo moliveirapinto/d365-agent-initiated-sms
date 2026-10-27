@@ -4,9 +4,9 @@
 
 Out of the box, a human agent in Dynamics 365 Contact Center (or Omnichannel for Customer Service) **cannot start an SMS conversation**. Microsoft's documentation says so: representatives can't proactively reach out to customers by starting an SMS conversation in the app. This free, open-source add-on fixes that.
 
-![Send SMS tab on a contact: number picker, message box, Write with Copilot and the full text history](docs/images/hero.png)
+![Send SMS tab on a contact in the Customer Service workspace: Write with Copilot, the message box and the text history](docs/images/hero.png)
 
-*The screenshots use made-up data.*
+*The first screenshot is from a test environment. The others use made-up data.*
 
 | What the agent gets | How |
 |---|---|
