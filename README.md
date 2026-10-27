@@ -78,12 +78,13 @@ Then show me ONE summary (environment, agents, forms that will be changed) and c
 
 PHASE 1 - PREVIEW (changes nothing)
 Run: node scripts/install.mjs --org <environment URL> --agents omnichannel --dry-run
-Show me the output. Expected: environment OK, Conversation table found, "Would import" the solution (or "Already installed"), forms "Contact" and "Customer Form" and "Active Conversation" listed, SMS sending either "Already set up" or "Would set up sending from <number>", and the list of agents that would get the role.
+Show me the output. Expected: environment OK, Conversation table found, "Would import" the solution (or "Already installed"), the Contact forms (by default ALL main Contact forms, for example "Contact", "Contact form", "Contact Master", "Information", not only one) and the conversation forms listed, SMS sending either "Already set up" or "Would set up sending from <number>", and the list of agents that would get the role.
 - If it says no SMS number with outbound enabled was found: STOP. I must provision the SMS channel first (Copilot Service admin center > Channels > Phone numbers and SMS). Do not try to create channels yourself.
 - If it lists several SMS numbers: ask me which one and add --sms-number <number>.
 
 PHASE 2 - INSTALL
-After my "yes", run the same command WITHOUT --dry-run (keep --sms-number if I chose one). It imports the solution, adds the Send SMS tab to the Contact forms and the text history to the Active Conversation form, creates the sending configuration for my SMS number, and gives the Agent SMS Console User role to the agents. It is safe to run again. If any step reports WARN or FAIL, show me the exact message and fix it using the README (Troubleshooting) before moving on.
+After my "yes", run the same command WITHOUT --dry-run (keep --sms-number if I chose one). It imports the solution, adds the Send SMS tab to ALL main Contact forms and the text history to ALL main conversation forms (so the tab shows whichever form the agent's app opens; the script skips portal, web, mobile, customer-card and embedded forms), creates the sending configuration for my SMS number, and gives the Agent SMS Console User role to the agents. It is safe to run again. If any step reports WARN or FAIL, show me the exact message and fix it using the README (Troubleshooting) before moving on.
+Then CHECK THE TAB IS REALLY THERE: list the main Contact forms in the environment (systemforms, objecttypecode contact, type 2) and confirm every one the script did not skip contains the web resource asms_/contact.html; if a form that agents open is missing it, run node scripts/add-to-forms.mjs --org <environment URL> --contact-form "<that form name>". In Phase 4, tell me which form name shows under the contact's name (e.g. "Contact form") so we know it is covered.
 Verify read-only with the Web API or by re-running the dry run: solution AgentSmsConsole is installed, role "Agent SMS Console User" exists, an outbound configuration named "Agent SMS - <number>" exists.
 
 PHASE 3 - MAKE REPLIES REACH THE SENDING AGENT (browser, in Copilot Service admin center)
@@ -153,8 +154,8 @@ The installer does everything in order and tells you what it did:
 |---|---|
 | `--agents omnichannel` | Gives the role to everyone who has the **Omnichannel agent** role. Or pass e-mails: `--agents anna@contoso.com,ben@contoso.com`. |
 | `--sms-number +14165551234` | Only needed if your environment has more than one SMS number. |
-| `--contact-forms "Contact,Customer Form"` | Which Contact forms get the Send SMS tab (this is the default). |
-| `--conversation-forms "Active Conversation"` | Which conversation forms get the history (this is the default). |
+| `--contact-forms all` | Which Contact forms get the Send SMS tab. `all` (the default) = every main Contact form agents can open, so the tab shows whichever form the app uses. Or give names, e.g. `"Contact,Contact form"`. |
+| `--conversation-forms all` | Which conversation forms get the history. `all` is the default. |
 | `--skip-forms` | Don't touch any form. Use the included **Contact - Agent SMS** form instead. |
 | `--force` | Reinstall even if the same version is already there. |
 
@@ -190,7 +191,7 @@ To upgrade later, import the newer zip over the old one.
 
 That form only has a few basic fields. **If you already use a customized contact form,** add the tab to it instead, either by script or by hand:
 
-- **By script (recommended):** `node scripts/add-to-forms.mjs --org https://YOURORG.crm.dynamics.com --contact-form "Customer Form" --conversation-forms "Active Conversation"`
+- **By script (recommended):** `node scripts/add-to-forms.mjs --org https://YOURORG.crm.dynamics.com --contact-form all --conversation-forms all`
 - **By hand:** open the form in the form designer, add a **tab** with a **web resource** control, choose `asms_/contact.html`. In the control properties clear *Pass record object-type code and unique identifier*, set *Scrolling* to *Auto* and untick *Display border*. Save and publish. For the conversation form add a web resource `asms_/history.html` in a section at the top of the first column.
 
 > **Why isn't the history inside the left-hand communication panel?** Microsoft doesn't offer a way to add custom content there. The **Customer Summary** tab that opens right beside it with every conversation is the closest supported place, so that's where the history goes.
@@ -325,6 +326,8 @@ To send from another SMS number, open **Manage numbers** (in the Send SMS tab) a
 
 **"Couldn't read the SMS configuration".** The signed-in user can't read `msdyn_ocoutboundconfiguration`. The built-in Omnichannel agent role includes it; check the user has that role.
 
+**The Send SMS tab isn't on the contact.** The tab only exists on forms that were extended. Look at the form name shown under the contact's name (for example *Contact form*), then run `node scripts/add-to-forms.mjs --org <url> --contact-form "<that form name>"` (or `--contact-form all` for every main form), publish, and hard refresh with Ctrl+F5.
+
 **The setup box says no SMS number was found.** The panel lists numbers where *SMS outbound* is enabled. Provision the SMS channel first (Copilot Service admin center > Channels > Phone numbers), then reopen the tab.
 
 **Setup fails with a permission error.** Run it as an Omnichannel administrator or System Administrator.
@@ -351,7 +354,7 @@ To send from another SMS number, open **Manage numbers** (in the Send SMS tab) a
 
 ## Uninstall
 
-1. Remove the tab and section from forms you added them to: `node scripts/add-to-forms.mjs --org <url> --contact-form "Contact,Customer Form" --conversation-forms "Active Conversation" --remove`.
+1. Remove the tab and section from forms you added them to: `node scripts/add-to-forms.mjs --org <url> --contact-form all --conversation-forms all --remove`.
 2. If you used the **Contact - Agent SMS** form, remove it from your apps in the app designer (an app that includes it blocks the uninstall with "Solution dependencies exist").
 3. Unassign the **Agent SMS Console User** role from users if the platform asks, then delete the solution **Agent SMS Console** (*Solutions >* select it *> Delete*).
 4. Optional: delete the records created when it runs: the `Agent SMS` outbound configuration(s), the message template **Agent SMS - free text**, and any `msdyn_preferredagent` rows named *Agent SMS reply routing*.

@@ -13,8 +13,8 @@
 // Options:
 //   --org <url>                 required. Your environment URL.
 //   --agents <list>             "omnichannel" = everyone who has the Omnichannel agent role, or a comma-separated list of e-mails.
-//   --contact-forms <names>     Contact forms to extend. Default: "Contact,Customer Form" (the ones that exist).
-//   --conversation-forms <n>    Conversation forms to extend. Default: "Active Conversation".
+//   --contact-forms <names>     Contact forms to extend. Default: "all" = every main Contact form agents can open (not portal/web/mobile/card forms).
+//   --conversation-forms <n>    Conversation forms to extend. Default: "all" (every main conversation form).
 //   --sms-number <+1555...>     SMS number to send from. Only needed if the environment has more than one.
 //   --skip-forms                do not touch any form.
 //   --zip <path>                use this solution zip instead of dist/ or the latest release.
@@ -139,8 +139,8 @@ step(3, "Adding the Send SMS tab and the text history to your forms");
 if (flag("skip-forms")) {
   ok("Skipped (--skip-forms). Use the form 'Contact - Agent SMS' or run scripts/add-to-forms.mjs later.");
 } else {
-  const contactForms = list(opt("contact-forms", "Contact,Customer Form"));
-  const convForms = list(opt("conversation-forms", "Active Conversation"));
+  const contactForms = list(opt("contact-forms", "all"));
+  const convForms = list(opt("conversation-forms", "all"));
   if (DRY) {
     ok(`Would add the tab to Contact forms: ${contactForms.join(", ")} and the history to: ${convForms.join(", ")}`);
   } else {

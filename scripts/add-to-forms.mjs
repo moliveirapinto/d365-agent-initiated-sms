@@ -1,8 +1,10 @@
 // Optional helper: adds the Send SMS tab / text history section to forms you already use.
 //
 //   node scripts/add-to-forms.mjs --org https://yourorg.crm.dynamics.com \
-//        --contact-form "Customer Form" \
-//        [--conversation-forms "Active Conversation,Conversation Form"] [--remove]
+//        --contact-form all [--conversation-forms all] [--remove]
+//
+// "all" = every main form of that table that agents can open, except portal / web / mobile / customer-card / embedded
+// forms and the "Contact - Agent SMS" form that ships with the solution. You can also give form names, comma separated.
 //
 // Authentication: Azure CLI (az login) by default, or set DATAVERSE_TOKEN to a bearer token for the org.
 // The script is idempotent. It changes the forms you name (unmanaged customization layer) and publishes them.
@@ -44,8 +46,12 @@ const strip = (xml) => xml
   .replace(new RegExp(`<tab name="${TAB}"[\\s\\S]*?</tab>`), "")
   .replace(new RegExp(`<section name="${SECTION}"[\\s\\S]*?</section>`), "");
 
+const SKIP = /portal|web form|mobile|card|in context|agent sms|profile cases|timelinewall|interactive experience/i;
 async function patchForm(entity, name, edit) {
-  const found = (await call("GET", `systemforms?$filter=${encodeURIComponent(`objecttypecode eq '${entity}' and type eq 2 and name eq '${name.replace(/'/g, "''")}'`)}&$select=formid,name,formxml`)).value;
+  const all = name.toLowerCase() === "all";
+  const filter = `objecttypecode eq '${entity}' and type eq 2` + (all ? "" : ` and name eq '${name.replace(/'/g, "''")}'`);
+  let found = (await call("GET", `systemforms?$filter=${encodeURIComponent(filter)}&$select=formid,name,formxml`)).value;
+  if (all) found = found.filter((f) => !SKIP.test(f.name));
   if (!found.length) { console.log(`! form not found: ${entity} / ${name}`); return false; }
   for (const f of found) {
     const xml = edit(strip(f.formxml));
