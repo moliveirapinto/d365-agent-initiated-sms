@@ -262,6 +262,8 @@ It didn't work? Go to [Troubleshooting](#troubleshooting).
 
 If the contact is flagged **Do not allow Phone Calls**, the panel asks the agent to confirm the customer agreed to receive texts before it sends.
 
+**Will the customer's reply come to the agent who sent the text?** Yes, as long as the environment is set up for it. The panel makes the sending agent the customer's *preferred representative*, and the reply is routed to that agent. This only works when four things are true, all covered in [Step 5](#step-5-make-replies-reach-the-agent-who-sent-the-text): preferred representative routing is switched on, the SMS workstream has no bot, the agent is in the workstream's queue with an allowed presence, and the customer's mobile number on the contact is unique and in E.164 format. If the agent is offline or at capacity, the reply follows the *can't be assigned work* setting from Step 5: it either waits in the queue for that agent or goes to the next best representative. The installer does **not** change these settings, so check them before you rely on it.
+
 **Compliance.** The panel sends exactly what the agent types to the number you give it. Your organization is responsible for consent, quiet hours, opt-out handling and do-not-contact rules, and carrier rules such as TCPA and 10DLC registration apply to your sending number.
 
 ---
