@@ -140,7 +140,7 @@ The installer does everything in order and tells you what it did:
 [1] Checking the environment
   OK   Contact Center / Omnichannel is installed
 [2] Installing the solution
-  OK   Solution imported (version 1.0.0.0)
+  OK   Solution imported (version 1.2.0.0)
 [3] Adding the Send SMS tab and the text history to your forms
   OK   Forms updated and published
 [4] Setting up SMS sending
@@ -175,7 +175,7 @@ Open the [Releases](../../releases/latest) page and download **`AgentSmsConsole_
 3. **Browse** to the zip, select **Next**, then **Import**. No connections or settings are asked for.
 4. Wait for the green "imported successfully" message (a minute or two).
 
-Prefer the command line? `pac auth create --environment https://yourorg.crm.dynamics.com` then `pac solution import --path AgentSmsConsole_1.0.0_managed.zip --publish-changes`.
+Prefer the command line? `pac auth create --environment https://yourorg.crm.dynamics.com` then `pac solution import --path AgentSmsConsole_1.2.0_managed.zip --publish-changes`.
 
 To upgrade later, import the newer zip over the old one.
 
@@ -240,12 +240,20 @@ It didn't work? Go to [Troubleshooting](#troubleshooting).
 
 ## Using it
 
+![Send SMS tab in the Customer Service workspace, with the number picker and Write with Copilot](docs/images/send-sms-workspace.png)
+
+*Made-up data. The tab in the Customer Service workspace, after Write with Copilot drafted the message.*
+
 1. Open a contact and select **Send SMS**.
 2. Check the recipient and the sending number at the top. If the contact has no mobile number, type one.
 3. Type a message, or start from a quick-reply chip (*Introduce myself*, *Follow up*, *Confirm resolved*, *Missed your call*). The counter shows message segments; special characters such as curly quotes or emoji switch the text to Unicode, which allows fewer characters per segment.
 4. Leave **Sign with my name** ticked to add your first name at the end, or untick it.
 5. Select **Send SMS** (or press Ctrl+Enter). The panel confirms the text reached the carrier and the history updates.
 6. When the customer replies, the conversation is assigned to you.
+
+**Several SMS numbers.** If your supervisor has enabled more than one number, a **Send from** picker shows each number with its title and description. With one number it is selected for you. Supervisors (and administrators) see a **Manage numbers** link that opens the admin page, where they switch numbers on or off and give each a title and description. The page needs the **Agent SMS Supervisor** role (or System Administrator).
+
+**Write with Copilot.** Select **Write with Copilot**, describe what the text should say (for example, *confirm tomorrow's appointment at 3 PM*) and select **Write**. If you already typed a draft, Copilot improves it instead. The result lands in the message box for you to read and edit before sending. It uses an AI Builder prompt named **Agent SMS Draft** and consumes Copilot Credits (or AI Builder credits) like any prompt run. If the prompt is missing the button is hidden.
 
 If the contact is flagged **Do not allow Phone Calls**, the panel asks the agent to confirm the customer agreed to receive texts before it sends.
 
@@ -272,7 +280,10 @@ Installed by the solution:
 | Web resource | `asms_/composer.html`: the send panel |
 | Web resource | `asms_/history.html`: the history thread |
 | Web resource | `asms_/contact.html`: composer and history on one page (used by the Send SMS tab) |
-| Security role | **Agent SMS Console User** (create, read, write, delete, append on `msdyn_preferredagent`) |
+| Web resource | `asms_/admin.html`: supervisors choose which SMS numbers agents can use |
+| Table | **Agent SMS Number** (`asms_smsnumber`): the title, description and enabled state of each number |
+| Security role | **Agent SMS Console User** (create, read, write, delete, append on `msdyn_preferredagent`; read on the SMS numbers table and on AI Builder prompts) |
+| Security role | **Agent SMS Supervisor** (everything the agent role has, plus managing numbers and outbound configurations) |
 | Form | **Contact - Agent SMS** (Contact table) |
 
 Created when it runs:
@@ -280,12 +291,13 @@ Created when it runs:
 | Record | When |
 |---|---|
 | Message template `Agent SMS - free text` and its localization row | One-time setup |
-| Outbound configuration `Agent SMS - <number>` | One-time setup |
+| Outbound configuration `Agent SMS - <number>` | One-time setup, and each time a supervisor enables a number on the admin page |
+| AI Builder prompt `Agent SMS Draft` | Created by `scripts/install.mjs` (step 5) |
 | `msdyn_preferredagent` row per contact (temporary) | Each send |
 | `msdyn_ocoutboundmessage` activity | Each send (Microsoft's own log) |
 | Contact Mobile Phone | Only if the contact had none and the agent typed one |
 
-To send from a second SMS number later, create another outbound configuration for it in Copilot Service admin center (*Customer settings > Outbound > New*) named `Agent SMS - <number>`, channel type SMS, the **Agent SMS - free text** template, and *Conversation record* set to *Create conversation on send*. Agents then see a **Send from** picker.
+To send from another SMS number, open **Manage numbers** (in the Send SMS tab) and switch it on. The page creates the outbound configuration for you. You can still create one by hand in Copilot Service admin center (*Customer settings > Outbound > New*) named `Agent SMS - <number>`; it then appears on the admin page.
 
 ---
 
@@ -296,7 +308,8 @@ To send from a second SMS number later, create another outbound configuration fo
 - **Matching is by phone number.** The history finds conversations whose subject starts with the customer's number, and conversations whose customer is the contact. SMS only, the last 100 texts sent from the tab, and a limited number of earlier conversations per load (a **Load older conversations** button appears when there are more).
 - **Preferred agent is per contact, not per conversation.** The last agent to text a contact receives the reply.
 - **The first reply is a new conversation.** Microsoft's API can't create a conversation owned by the sender at send time, and in testing the customer's reply always arrived as a new conversation with no link to the outbound text. The history panel bridges that gap.
-- **Tested as a System Administrator.** Privileges for non-admin agents were derived from privilege names. Test the agent side with a user who has only Omnichannel agent plus Agent SMS Console User.
+- **The Copilot prompt is created by the installer, not by the solution.** Microsoft doesn't support creating prompts from a solution zip you build yourself, so `scripts/install.mjs` creates **Agent SMS Draft** through the AI Builder publish action. With the click-by-click install, create a prompt with that exact name and the inputs `Customer`, `Agent`, `Task` and `Draft` (see `scripts/prompt-config.mjs`), or skip the feature.
+- **Tested as a System Administrator.** Privileges for non-admin agents were derived from privilege names. Test the agent side with a user who has only Omnichannel agent plus Agent SMS Console User. Running the Copilot prompt was also verified as a user with only Read on AI Model and AI Template.
 - **SMS via Azure Communication Services is deprecated by Microsoft.** Use Twilio or Infobip for new setups.
 - **WhatsApp and other channels aren't covered.** Templates, the 24-hour window and opt-in rules differ there.
 

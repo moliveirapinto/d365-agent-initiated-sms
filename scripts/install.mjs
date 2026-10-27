@@ -7,7 +7,8 @@
 //   2. imports the managed solution (downloads the latest release if dist/ has no zip)
 //   3. adds the "Send SMS" tab to the Contact form(s) and the text history to the conversation form(s)
 //   4. creates the SMS sending configuration for your SMS number (the same one-click setup the Send SMS tab offers)
-//   5. gives the "Agent SMS Console User" role to the agents you name
+//   5. creates the "Agent SMS Draft" Copilot prompt behind the "Write with Copilot" button
+//   6. gives the "Agent SMS Console User" role to the agents you name
 //
 // Options:
 //   --org <url>                 required. Your environment URL.
@@ -27,6 +28,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { PROMPT_NAME, PROMPT_TEMPLATE_ID, PROMPT_CONFIG } from "./prompt-config.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -118,7 +120,17 @@ if (installed && versionGte(installed.version, zipVersion) && !flag("force")) {
       CustomizationFile: readFileSync(zip).toString("base64"),
       OverwriteUnmanagedCustomizations: true, PublishWorkflows: true, ImportJobId: randomUUID(),
     });
-  } catch (e) { fail("Import failed. " + e.message); }
+  } catch (e) {
+    // A long import can outlive the HTTP connection; the import itself keeps running on the server.
+    if (e.status) fail("Import failed. " + e.message);
+    console.log("  The connection closed while the import was running. Waiting for it to finish...");
+    let done = false;
+    for (let i = 0; i < 60 && !done; i++) {
+      await new Promise((res) => setTimeout(res, 15000));
+      try { const s = (await call("GET", `solutions?$filter=uniquename eq '${SOLUTION}'&$select=version`)).value[0]; done = !!s && versionGte(s.version, zipVersion); } catch { /* keep waiting */ }
+    }
+    if (!done) fail("Import did not finish in 15 minutes. Check Solution History in the maker portal.");
+  }
   ok("Solution imported (version " + zipVersion + ")");
 }
 
@@ -199,8 +211,33 @@ if (cfgs.length) {
     }
   }
 }
-// 5. Roles
-step(5, "Giving agents the " + ROLE + " role");
+// 5. Copilot prompt that writes the message ("Write with Copilot" button in the Send SMS tab)
+step(5, "Creating the Copilot prompt that helps agents write messages");
+try {
+  const existing = (await call("GET", `msdyn_aimodels?$select=msdyn_aimodelid,statecode&$filter=${encodeURIComponent(`msdyn_name eq '${PROMPT_NAME}'`)}`)).value[0];
+  if (existing) {
+    ok(`Prompt "${PROMPT_NAME}" already exists`);
+  } else if (DRY) {
+    ok(`Would create the prompt "${PROMPT_NAME}"`);
+  } else {
+    const r = await fetch(API + "msdyn_aimodels", {
+      method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json", Accept: "application/json", "OData-Version": "4.0" },
+      body: JSON.stringify({ msdyn_name: PROMPT_NAME, "msdyn_TemplateId@odata.bind": `/msdyn_aitemplates(${PROMPT_TEMPLATE_ID})`, msdyn_sharewithorganizationoncreate: false }),
+    });
+    if (!r.ok) throw new Error(`create: ${r.status} ${(await r.text()).slice(0, 300)}`);
+    const modelId = /\(([^)]+)\)\s*$/.exec(r.headers.get("OData-EntityId") || "")?.[1];
+    await new Promise((res) => setTimeout(res, 3000));
+    const config = JSON.stringify(PROMPT_CONFIG);
+    await call("POST", "AIModelPublish", { TemplateId: PROMPT_TEMPLATE_ID, ModelId: modelId, RunConfigurationId: modelId, ModelName: PROMPT_NAME, CustomConfiguration: config, RunConfiguration: config });
+    await new Promise((res) => setTimeout(res, 5000));
+    const m = await call("GET", `msdyn_aimodels(${modelId})?$select=statecode,_msdyn_activerunconfigurationid_value`);
+    if (m.statecode !== 1 || !m._msdyn_activerunconfigurationid_value) throw new Error("the prompt was created but is not published yet");
+    ok(`Prompt "${PROMPT_NAME}" created and published`);
+  }
+} catch (e) { warn("Could not create the Copilot prompt (" + e.message + "). The Send SMS tab still works, it just hides the Write with Copilot button."); }
+
+// 6. Roles
+step(6, "Giving agents the " + ROLE + " role");
 const agents = opt("agents");
 if (!agents) {
   warn("No --agents given. Run again with --agents omnichannel (everyone with the Omnichannel agent role) or --agents a@x.com,b@x.com.");

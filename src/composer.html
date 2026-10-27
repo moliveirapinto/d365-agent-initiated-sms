@@ -39,24 +39,34 @@
   .hist tr:last-child td{border-bottom:0}
   .st-ok{color:var(--ok);font-weight:600}.st-err{color:var(--err);font-weight:600}.st-pend{color:var(--warn);font-weight:600}
   h3{font-size:13px;margin:16px 0 0}
+  .fromBox{border:1px solid var(--line);background:#f8fafc;border-radius:8px;padding:8px 11px;margin-bottom:10px}
+  .fromBox .line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .fromBox .line label{margin:0}
+  .fromBox select{width:auto;min-width:260px;max-width:100%}
+  .fromBox .t{font-weight:600}
+  .fromBox .d{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .fromBox a{margin-left:auto;font-size:12px;color:var(--brand);cursor:pointer;text-decoration:none}
+  .fromBox a:hover{text-decoration:underline}
   .hidden{display:none!important}
+  .aiPanel{border:1px solid var(--line);background:#f8fafc;border-radius:8px;padding:8px 11px;margin-top:8px}
+  .aiPanel input{flex:1}
+  #aiBtn{border-color:#b9a4e8;color:#4b2e9b}
 </style>
 </head>
 <body>
   <div id="banner"></div>
 
-  <div id="setup" class="hidden">
-    <div class="msg info"><b>One-time setup.</b> Choose the SMS number agents text from. This creates a message template and an outbound configuration in this environment. It needs an administrator.</div>
-    <label for="setupNum">SMS number</label>
-    <select id="setupNum"></select>
-    <div class="actions"><span id="setupStatus" class="hint"></span><button id="setupBtn" class="primary" type="button">Set up SMS sending</button></div>
+  <div id="nosms" class="hidden">
+    <div class="msg info"><b>No SMS number is enabled for agents yet.</b> <span id="nosmsWho">Ask your supervisor to enable one.</span></div>
+    <div id="nosmsAdmin" class="hidden actions" style="justify-content:flex-start"><button id="openAdmin1" class="primary" type="button">Choose the SMS numbers agents can use</button></div>
   </div>
 
   <div id="compose" class="hidden">
   <div class="top">
     <div class="to"><b id="toName">Loading…</b><br><span id="toNum"></span></div>
-    <div class="from" id="fromRow"></div>
   </div>
+
+  <div id="fromBox" class="fromBox hidden"></div>
 
   <div id="needNum" class="hidden">
     <div class="msg warn">This contact has no mobile number on the record. Enter one to text them. It is saved to the contact's Mobile Phone so replies are matched to them.</div>
@@ -74,6 +84,14 @@
   <textarea id="body" placeholder="Type your message"></textarea>
   <div class="meta"><span id="seg"></span><span id="count"></span></div>
   <div class="chips" id="chips"></div>
+  <div id="ai" class="hidden" style="margin-top:10px">
+    <button id="aiBtn" type="button">&#10024; Write with Copilot</button>
+    <div id="aiPanel" class="hidden aiPanel">
+      <label for="aiTask">What should the text say?</label>
+      <div class="row"><input id="aiTask" type="text" placeholder="For example: confirm tomorrow's appointment at 3 PM" /><button id="aiGo" class="primary" type="button">Write</button></div>
+      <div class="hint" style="margin-top:4px">If you already typed a message above, Copilot improves it. Always read the text before you send it.</div>
+    </div>
+  </div>
   <label class="check"><input id="sig" type="checkbox" checked /> <span>Sign with my name <span id="sigName" class="hint"></span></span></label>
 
   <div class="actions">
@@ -98,7 +116,7 @@
     { l:"Missed your call", t:"Hi {first}, I tried to reach you by phone. Reply here and I'll help you by text." }
   ];
   var $ = function(id){ return document.getElementById(id); };
-  var state = { contactId:null, contact:null, number:null, me:null, sending:false, cfgId:null };
+  var state = { contactId:null, contact:null, number:null, me:null, sending:false, cfgId:null, numbers:[] };
 
   function xrm(){ var w = window; for (var i = 0; i < 5; i++) { try { if (w.Xrm && w.Xrm.Page && w.Xrm.Page.data) return w.Xrm; } catch(e){} if (w.parent === w) break; w = w.parent; } try { return (window.parent && window.parent.Xrm) || window.Xrm || null; } catch(e){ return null; } }
   function base(){ var x = xrm(); try { if (x && x.Utility) return x.Utility.getGlobalContext().getClientUrl(); } catch(e){} return location.origin; }
@@ -254,6 +272,40 @@
       }).catch(function(){ $("status").textContent=""; refreshHistory(); });
   }
 
+  /* ---------- Write with Copilot (AI Builder prompt "Agent SMS Draft") ---------- */
+  var PROMPT_NAME = "Agent SMS Draft";
+  function loadPrompt(){
+    api("GET","msdyn_aimodels?$select=msdyn_aimodelid&$top=1&$filter="+encodeURIComponent("msdyn_name eq '"+PROMPT_NAME+"' and statecode eq 1"))
+      .then(function(r){ if (r.value[0]) { state.promptId = r.value[0].msdyn_aimodelid; $("ai").classList.remove("hidden"); } })
+      .catch(function(){});
+  }
+  function aiError(e){
+    var m = String(e.message||""); try { var j = JSON.parse(m); m = (j.error && j.error.message) || m; } catch(x){}
+    if (/Entitlement|NoCapacity|capacity|credit/i.test(m)) return "Copilot isn't available because this environment has no Copilot or AI Builder credits.";
+    return "Copilot couldn't write the message: "+m;
+  }
+  function aiWrite(){
+    if (state.aiBusy || !state.promptId) return;
+    var task = $("aiTask").value.trim(), draft = $("body").value.trim();
+    if (!task && !draft) { banner("info","Tell Copilot what the text should say, or type a draft first."); $("aiTask").focus(); return; }
+    var first = state.contact && state.contact.firstname ? state.contact.firstname : "the customer";
+    state.aiBusy = true; $("aiGo").disabled = true; $("aiGo").textContent = "Writing\u2026"; banner("","");
+    api("POST","msdyn_aimodels("+state.promptId+")/Microsoft.Dynamics.CRM.Predict",{
+      version:"2.0",
+      source: JSON.stringify({ consumptionSource:"Api", partnerSource:"AgentSmsConsole", consumptionSourceVersion:"1.2.0" }),
+      requestv2:{ "@odata.type":"#Microsoft.Dynamics.CRM.expando",
+        Customer:first, Agent: state.me ? state.me.first : "your agent",
+        Task: task || "Improve my draft message", Draft: draft }
+    }).then(function(r){
+      var out = r.responsev2 && r.responsev2.predictionOutput, text = out && (out.text || (out.structuredOutput && out.structuredOutput.text));
+      if (!text) throw new Error("Copilot returned no text.");
+      text = String(text).trim().replace(/^["\u201c]+|["\u201d]+$/g,"");
+      $("body").value = text; refresh(); $("body").focus();
+      $("status").textContent = "Written by Copilot. Check it before you send.";
+    }).catch(function(e){ banner("err", esc(aiError(e))); })
+      .then(function(){ state.aiBusy = false; $("aiGo").disabled = false; $("aiGo").textContent = "Write"; });
+  }
+
   /* ---------- init ---------- */
   function init(){
     $("chips").innerHTML = TEMPLATES.map(function(t,i){ return '<span class="chip" data-i="'+i+'" title="'+esc(t.t)+'">'+esc(t.l)+'</span>'; }).join("");
@@ -262,6 +314,9 @@
     $("sig").addEventListener("change", refresh); $("dndOverride").addEventListener("change", refresh);
     $("clear").onclick = function(){ $("body").value=""; banner("",""); refresh(); };
     $("send").onclick = send;
+    $("aiBtn").onclick = function(){ $("aiPanel").classList.toggle("hidden"); if (!$("aiPanel").classList.contains("hidden")) $("aiTask").focus(); };
+    $("aiGo").onclick = aiWrite;
+    $("aiTask").addEventListener("keydown", function(e){ if (e.key==="Enter") { e.preventDefault(); aiWrite(); } });
     $("body").addEventListener("keydown", function(e){ if ((e.ctrlKey||e.metaKey) && e.key==="Enter") send(); });
 
     api("GET","WhoAmI").then(function(w){
@@ -271,9 +326,9 @@
       });
     }).catch(function(){});
 
-    $("setupBtn").onclick = runSetup;
     loadConfigs();
     loadContact();
+    loadPrompt();
     refresh();
     if (window.parent !== window && window.ResizeObserver) {
       var report = function(){ try { window.parent.postMessage({ type:"asms-height", h:Math.ceil(document.body.getBoundingClientRect().height + 8) }, "*"); } catch(e){} };
@@ -281,83 +336,64 @@
     }
   }
 
-  /* ---------- outbound configurations (one per SMS number) ---------- */
+  /* ---------- SMS numbers agents can use (enabled by a supervisor on the admin page) ---------- */
+  function canManage(){
+    try {
+      var x = xrm(), roles = x.Utility.getGlobalContext().userSettings.roles, names = [];
+      roles.forEach(function(r){ names.push(r.name); });
+      return names.some(function(n){ return /^(Agent SMS Supervisor|System Administrator|System Customizer|Omnichannel administrator)$/i.test(n); });
+    } catch(e){ return false; }
+  }
+  function openAdmin(){
+    var x = xrm();
+    try {
+      if (x && x.Navigation && x.Navigation.navigateTo) {
+        return x.Navigation.navigateTo({ pageType:"webresource", webresourceName:"asms_/admin.html" }, { target:2, position:1, width:{ value:85, unit:"%" }, height:{ value:85, unit:"%" } }).then(loadConfigs, loadConfigs);
+      }
+    } catch(e){}
+    window.open(base()+"/WebResources/asms_/admin.html", "_blank");
+  }
+
+  function renderFrom(){
+    var box = $("fromBox"), list = state.numbers, sel = state.numbers.filter(function(n){ return n.id === state.cfgId; })[0] || list[0];
+    var manage = canManage() ? '<a id="manage" title="Choose which numbers agents can use">Manage numbers</a>' : "";
+    var h;
+    if (list.length === 1) {
+      h = '<div class="line"><label>From</label>'+(sel.title ? '<span class="t">'+esc(sel.title)+'</span> <span class="hint">'+esc(pretty(sel.number))+'</span>' : '<span class="t">'+esc(pretty(sel.number))+'</span>')+manage+'</div>';
+    } else {
+      h = '<div class="line"><label for="from">Send from</label><select id="from">'+list.map(function(n){
+        return '<option value="'+n.id+'"'+(n.id===state.cfgId?" selected":"")+'>'+esc((n.title ? n.title+" \u2013 " : "")+pretty(n.number))+'</option>'; }).join("")+'</select>'+manage+'</div>';
+    }
+    h += '<div class="d" id="fromDesc">'+esc(sel.desc||"")+'</div>';
+    box.innerHTML = h; box.classList.remove("hidden");
+    $("fromDesc").classList.toggle("hidden", !sel.desc);
+    if ($("from")) $("from").onchange = function(){ state.cfgId = this.value; renderFrom(); refresh(); };
+    if ($("manage")) $("manage").onclick = openAdmin;
+  }
+
   function loadConfigs(){
-    return api("GET","msdyn_ocoutboundconfigurationes?$select=msdyn_name,msdyn_channelid&$orderby=msdyn_name&$filter="+encodeURIComponent("msdyn_channel eq 192340000 and statecode eq 0 and startswith(msdyn_name,'"+CFG_PREFIX+"')"))
-      .then(function(r){
-        var v = r.value;
-        if (!v.length) return showSetup();
-        $("setup").classList.add("hidden"); $("compose").classList.remove("hidden");
-        state.cfgId = v[0].msdyn_ocoutboundconfigurationid;
-        var f = $("fromRow");
-        if (v.length > 1) {
-          f.innerHTML = '<label for="from">Send from</label><select id="from">'+v.map(function(c){ return '<option value="'+c.msdyn_ocoutboundconfigurationid+'">'+esc(pretty(c.msdyn_channelid))+'</option>'; }).join("")+'</select>';
-          $("from").onchange = function(){ state.cfgId = this.value; };
-        } else f.textContent = "From " + pretty(v[0].msdyn_channelid);
-        refresh();
-      }).catch(function(e){ $("compose").classList.remove("hidden"); banner("err","Couldn't read the SMS configuration: "+esc(e.message)); });
-  }
-
-  function showSetup(){
-    $("compose").classList.add("hidden"); $("setup").classList.remove("hidden");
-    return api("GET","msdyn_ocphonenumbers?$select=msdyn_phonenumber&$orderby=msdyn_phonenumber&$filter="+encodeURIComponent("msdyn_smsoutboundenabled eq true and statecode eq 0"))
-      .then(function(r){
-        if (!r.value.length) { $("setupNum").innerHTML = ""; $("setupBtn").disabled = true; banner("warn","No SMS number with outbound enabled was found. Provision an SMS channel first (see the README), then reopen this tab."); return; }
-        $("setupNum").innerHTML = r.value.map(function(n){ return '<option value="'+esc(n.msdyn_phonenumber)+'">'+esc(pretty(n.msdyn_phonenumber))+'</option>'; }).join("");
-        $("setupBtn").disabled = false;
-      }).catch(function(e){ banner("err","Couldn't list SMS numbers: "+esc(e.message)); });
-  }
-
-  function post(set, body){
-    return fetch(base()+API+set, { method:"POST", credentials:"same-origin", body:JSON.stringify(body),
-      headers:{ "Accept":"application/json", "OData-MaxVersion":"4.0", "OData-Version":"4.0", "Content-Type":"application/json; charset=utf-8" } })
-      .then(function(r){ return r.text().then(function(t){
-        if (!r.ok) { var j = {}; try { j = JSON.parse(t); } catch(e){} throw new Error((j.error && j.error.message) || ("HTTP "+r.status)); }
-        var m = /\(([^)]+)\)\s*$/.exec(r.headers.get("OData-EntityId")||""); return m ? m[1] : null; }); });
-  }
-
-  function runSetup(){
-    var number = $("setupNum").value; if (!number) return;
-    $("setupBtn").disabled = true; $("setupStatus").textContent = "Setting up…"; banner("","");
-    var lang, tmplId;
-    api("GET","msdyn_oclanguages?$select=msdyn_oclanguageid,msdyn_localeid&$top=300").then(function(r){
-      var l = r.value.filter(function(x){ return x.msdyn_localeid === 1033; })[0] || r.value[0];
-      if (!l) throw new Error("No languages are configured in this environment.");
-      lang = l;
-      return api("GET","msdyn_ocsystemmessages?$select=msdyn_ocsystemmessageid&$top=1&$filter="+encodeURIComponent("msdyn_name eq '"+TEMPLATE_NAME+"'"));
-    }).then(function(r){
-      if (r.value.length) { tmplId = r.value[0].msdyn_ocsystemmessageid; return; }
-      return post("msdyn_ocsystemmessages",{
-        msdyn_name:TEMPLATE_NAME, msdyn_messagetype:3, msdyn_streamsource:192340000, msdyn_messagetext:"{message}",
-        msdyn_messagedescription:"Used by the Agent SMS panel to send text typed by an agent.",
-        "msdyn_defaultlanguage@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")"
-      }).then(function(id){
-        tmplId = id;
-        return post("msdyn_oclocalizationdatas",{
-          msdyn_entityname:"msdyn_ocsystemmessage", msdyn_entitycolumnname:"msdyn_messagetext", msdyn_entityrecordid:id,
-          msdyn_localizedtext:"{message}", msdyn_defaultlocalizedtext:"{message}", msdyn_languagecode:lang.msdyn_localeid, msdyn_isdefault:true,
-          "msdyn_customerlanguageid@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")",
-          "msdyn_systemmessageid@odata.bind":"/msdyn_ocsystemmessages("+id+")"
-        });
-      });
-    }).then(function(){
-      return api("GET","msdyn_liveworkstreams?$select=msdyn_liveworkstreamid&$top=1&$filter="+encodeURIComponent("msdyn_streamsource eq 192340000 and statecode eq 0")).catch(function(){ return { value:[] }; });
-    }).then(function(ws){
-      var body = {
-        msdyn_name:CFG_PREFIX+" - "+number, msdyn_channel:192340000, msdyn_channelid:number, msdyn_type:100000001,
-        msdyn_showinactivities:true, msdyn_enablemessagelogging:true,
-        "msdyn_messagetemplate@odata.bind":"/msdyn_ocsystemmessages("+tmplId+")",
-        "msdyn_defaultlocale@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")"
-      };
-      if (ws.value.length) body["msdyn_liveworkstreamid@odata.bind"] = "/msdyn_liveworkstreams("+ws.value[0].msdyn_liveworkstreamid+")";
-      return post("msdyn_ocoutboundconfigurationes", body);
-    }).then(function(){
-      $("setupStatus").textContent = ""; banner("ok","SMS sending is set up for "+esc(pretty(number))+".");
-      return loadConfigs();
-    }).catch(function(e){
-      $("setupBtn").disabled = false; $("setupStatus").textContent = "";
-      banner("err","Setup failed: "+esc(e.message)+" (an administrator, such as an Omnichannel administrator or System Administrator, must run it once).");
-    });
+    return Promise.all([
+      api("GET","msdyn_ocoutboundconfigurationes?$select=msdyn_name,msdyn_channelid&$orderby=msdyn_name&$filter="+encodeURIComponent("msdyn_channel eq 192340000 and statecode eq 0 and startswith(msdyn_name,'"+CFG_PREFIX+"')")),
+      api("GET","asms_smsnumbers?$select=asms_name,asms_number,asms_description&$filter="+encodeURIComponent("statecode eq 0")).catch(function(){ return { value:[] }; })
+    ]).then(function(r){
+      var info = {}; r[1].value.forEach(function(p){ info[p.asms_number] = p; });
+      state.numbers = r[0].value.map(function(c){
+        var p = info[c.msdyn_channelid] || {};
+        var t = p.asms_name && p.asms_name !== c.msdyn_channelid ? p.asms_name : "";
+        return { id:c.msdyn_ocoutboundconfigurationid, number:c.msdyn_channelid, title:t, desc:p.asms_description||"" };
+      }).sort(function(a,b){ return (a.title||a.number).localeCompare(b.title||b.number); });
+      if (!state.numbers.length) {
+        state.cfgId = null; $("compose").classList.add("hidden"); $("nosms").classList.remove("hidden");
+        var adm = canManage();
+        $("nosmsAdmin").classList.toggle("hidden", !adm);
+        $("nosmsWho").textContent = adm ? "Choose which SMS numbers agents can text from." : "Ask your supervisor to enable one.";
+        $("openAdmin1").onclick = openAdmin;
+        return;
+      }
+      $("nosms").classList.add("hidden"); $("compose").classList.remove("hidden");
+      if (!state.numbers.some(function(n){ return n.id === state.cfgId; })) state.cfgId = state.numbers[0].id;
+      renderFrom(); refresh();
+    }).catch(function(e){ $("compose").classList.remove("hidden"); banner("err","Couldn't read the SMS configuration: "+esc(e.message)); });
   }
   init();
 })();

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent SMS numbers</title>
+<style>
+  :root { --text:#1f2430; --muted:#667085; --line:#e3e6ec; --brand:#0f6cbd; --brand-dark:#0b5a9d; --ok:#107c41; --warn:#b45309; --err:#c4314b; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#f6f7f9}
+  body{font:14px/1.45 "Segoe UI",system-ui,sans-serif;color:var(--text);padding:22px 26px 30px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 16px;max-width:760px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th{background:#f1f4f9;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);padding:10px 12px}
+  td{padding:12px;border-top:1px solid var(--line);vertical-align:top}
+  td.num{font-weight:600;white-space:nowrap}
+  td.num small{display:block;font-weight:400;color:var(--muted);margin-top:2px}
+  input[type=text],textarea{width:100%;border:1px solid #c6cbd5;border-radius:6px;padding:7px 10px;font:inherit;background:#fff;color:inherit}
+  textarea{min-height:58px;resize:vertical}
+  input:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:transparent}
+  input:disabled,textarea:disabled{background:#f6f7f9;color:#98a0ad}
+  .sw{position:relative;display:inline-block;width:42px;height:24px}
+  .sw input{opacity:0;width:0;height:0}
+  .sw span{position:absolute;inset:0;background:#c6cbd5;border-radius:24px;cursor:pointer;transition:.15s}
+  .sw span:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+  .sw input:checked+span{background:var(--brand)}
+  .sw input:checked+span:before{transform:translateX(18px)}
+  .sw input:disabled+span{opacity:.5;cursor:not-allowed}
+  .pill{display:inline-block;font-size:11.5px;border-radius:999px;padding:2px 9px;background:#eef1f6;color:#475467;white-space:nowrap}
+  .pill.on{background:#e3f4ea;color:#0b5a2e}
+  .pill.off{background:#fdf0e0;color:#7a4a05}
+  .bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px}
+  button{font:inherit;border-radius:6px;border:1px solid #c6cbd5;background:#fff;padding:8px 16px;cursor:pointer}
+  button:hover{background:#f3f5f9}
+  button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  button.primary:hover{background:var(--brand-dark)}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  .msg{border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px}
+  .msg.err{background:#fdecef;border:1px solid #f4c3cc;color:#8a1f33}
+  .msg.warn{background:#fff6e5;border:1px solid #f3d9a4;color:#7a4a05}
+  .msg.ok{background:#e9f7ef;border:1px solid #bfe3cd;color:#0b5a2e}
+  .msg.info{background:#eaf3fb;border:1px solid #c5dcf2;color:#14416d}
+  .hint{color:var(--muted);font-size:12.5px}
+  .empty{padding:28px;text-align:center;color:var(--muted)}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+  <h1>Agent SMS numbers</h1>
+  <p class="sub">Choose which SMS numbers agents can text customers from. Give each number a <b>title</b> and a <b>description</b> so agents know what it is for. When more than one number is enabled, agents pick one in the Send SMS tab and see the number, title and description. With just one number, it is selected for them automatically.</p>
+  <div id="banner"></div>
+  <div class="card">
+    <table>
+      <thead><tr><th style="width:84px">Agents can use</th><th style="width:190px">Number</th><th style="width:26%">Title</th><th>Description</th><th style="width:130px">Status</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="empty">Loading numbers…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="bar">
+    <span id="status" class="hint"></span>
+    <div><button id="reload" type="button">Reload</button> <button id="save" class="primary" type="button" disabled>Save changes</button></div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  var API = "/api/data/v9.2/", CFG_PREFIX = "Agent SMS", TEMPLATE_NAME = "Agent SMS - free text", SMS = 192340000;
+  var $ = function(id){ return document.getElementById(id); };
+  var rows = [];
+
+  function xrm(){ var w = window; for (var i = 0; i < 5; i++) { try { if (w.Xrm && w.Xrm.Utility) return w.Xrm; } catch(e){} if (w.parent === w) break; w = w.parent; } return null; }
+  function base(){ var x = xrm(); try { if (x) return x.Utility.getGlobalContext().getClientUrl(); } catch(e){} return location.origin; }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+  function odata(s){ return String(s).replace(/'/g,"''"); }
+  function pretty(e){ var m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e||""); return m ? "+1 ("+m[1]+") "+m[2]+"-"+m[3] : (e||""); }
+  function banner(kind, html){ $("banner").innerHTML = html ? '<div class="msg '+kind+'">'+html+'</div>' : ""; }
+
+  function api(method, path, body){
+    return fetch(base()+API+path, { method:method, credentials:"same-origin", body: body? JSON.stringify(body): undefined,
+      headers:{ "Accept":"application/json", "OData-MaxVersion":"4.0", "OData-Version":"4.0", "Content-Type":"application/json; charset=utf-8" } })
+      .then(function(r){
+        return r.text().then(function(t){
+          var j = {}; try { j = t ? JSON.parse(t) : {}; } catch(e){}
+          if (!r.ok) { var e = new Error((j.error && j.error.message) || ("HTTP "+r.status)); e.status = r.status; throw e; }
+          j.__id = (/\(([^)]+)\)\s*$/.exec(r.headers.get("OData-EntityId")||"")||[])[1] || null;
+          return j;
+        });
+      });
+  }
+
+  /* ---------- load ---------- */
+  function load(){
+    $("rows").innerHTML = '<tr><td colspan="5" class="empty">Loading numbers…</td></tr>';
+    banner("",""); $("save").disabled = true;
+    return Promise.all([
+      api("GET","msdyn_ocphonenumbers?$select=msdyn_phonenumber,msdyn_smsoutboundenabled&$orderby=msdyn_phonenumber&$filter="+encodeURIComponent("statecode eq 0 and (msdyn_smsinboundenabled eq true or msdyn_smsoutboundenabled eq true)")),
+      api("GET","asms_smsnumbers?$select=asms_smsnumberid,asms_name,asms_number,asms_description&$filter="+encodeURIComponent("statecode eq 0")),
+      api("GET","msdyn_ocoutboundconfigurationes?$select=msdyn_ocoutboundconfigurationid,msdyn_name,msdyn_channelid,statecode&$filter="+encodeURIComponent("msdyn_channel eq "+SMS+" and startswith(msdyn_name,'"+CFG_PREFIX+"')"))
+    ]).then(function(r){
+      var cfg = {}, meta = {};
+      r[2].value.forEach(function(c){ var k = c.msdyn_channelid; if (!cfg[k] || c.statecode === 0) cfg[k] = c; });
+      r[1].value.forEach(function(m){ meta[m.asms_number] = m; });
+      rows = r[0].value.map(function(p){
+        var c = cfg[p.msdyn_phonenumber], m = meta[p.msdyn_phonenumber];
+        var enabled = !!(c && c.statecode === 0), title = m && m.asms_name && m.asms_name !== p.msdyn_phonenumber ? m.asms_name : "", desc = m && m.asms_description || "";
+        return { number:p.msdyn_phonenumber, canSend:!!p.msdyn_smsoutboundenabled,
+          cfgId:c ? c.msdyn_ocoutboundconfigurationid : null, metaId:m ? m.asms_smsnumberid : null,
+          enabled:enabled, title:title, desc:desc, o:{ enabled:enabled, title:title, desc:desc } };
+      });      render();
+    }).catch(function(e){
+      $("rows").innerHTML = '<tr><td colspan="5" class="empty">Couldn\'t load the numbers.</td></tr>';
+      var m = e.status === 403 || /privilege|access/i.test(e.message) ? "You don't have permission to see or change SMS numbers. Ask an administrator to give you the Agent SMS Supervisor role." : esc(e.message);
+      banner("err", m);
+    });
+  }
+
+  function dirty(r){ return r.enabled !== r.o.enabled || r.title !== r.o.title || r.desc !== r.o.desc; }
+  function render(){
+    if (!rows.length) {
+      $("rows").innerHTML = '<tr><td colspan="5" class="empty">No SMS numbers were found. Set up an SMS channel first (Copilot Service admin center &gt; Channels &gt; Phone numbers), then reload.</td></tr>';
+      return;
+    }
+    $("rows").innerHTML = rows.map(function(r,i){
+      var status = !r.canSend ? '<span class="pill off" title="Turn on SMS outbound for this number in Copilot Service admin center">Outbound off</span>'
+        : (r.enabled ? '<span class="pill on">Enabled</span>' : '<span class="pill">Not enabled</span>');
+      return '<tr data-i="'+i+'"><td><label class="sw"><input type="checkbox" class="en"'+(r.enabled?" checked":"")+(r.canSend?"":" disabled")+' /><span></span></label></td>'
+        + '<td class="num">'+esc(pretty(r.number))+(r.canSend?"":'<small>SMS outbound is not enabled for this number</small>')+'</td>'
+        + '<td><input type="text" class="ti" maxlength="100" placeholder="For example: Appointment reminders" value="'+esc(r.title)+'"'+(r.canSend?"":" disabled")+' /></td>'
+        + '<td><textarea class="de" maxlength="500" placeholder="What is this number for? Agents see this when they choose it."'+(r.canSend?"":" disabled")+'>'+esc(r.desc)+'</textarea></td>'
+        + '<td class="st">'+status+'</td></tr>';
+    }).join("");
+    Array.prototype.forEach.call($("rows").querySelectorAll("tr"), function(tr){
+      var r = rows[+tr.getAttribute("data-i")];
+      tr.querySelector(".en").onchange = function(){ r.enabled = this.checked; touch(); };
+      tr.querySelector(".ti").oninput = function(){ r.title = this.value; touch(); };
+      tr.querySelector(".de").oninput = function(){ r.desc = this.value; touch(); };
+    });
+    touch();
+  }
+  function touch(){
+    var n = rows.filter(dirty).length;
+    $("save").disabled = !n;
+    $("status").textContent = n ? n+" unsaved change"+(n===1?"":"s") : (rows.some(function(r){ return r.enabled; }) ? "" : "No number is enabled yet. Agents can't send until you enable one.");
+  }
+
+  /* ---------- save ---------- */
+  function ensureTemplate(){
+    var lang, tmplId;
+    return api("GET","msdyn_oclanguages?$select=msdyn_oclanguageid,msdyn_localeid&$top=300").then(function(r){
+      lang = r.value.filter(function(x){ return x.msdyn_localeid === 1033; })[0] || r.value[0];
+      if (!lang) throw new Error("No languages are configured in this environment.");
+      return api("GET","msdyn_ocsystemmessages?$select=msdyn_ocsystemmessageid&$top=1&$filter="+encodeURIComponent("msdyn_name eq '"+TEMPLATE_NAME+"'"));
+    }).then(function(r){
+      if (r.value.length) { tmplId = r.value[0].msdyn_ocsystemmessageid; return; }
+      return api("POST","msdyn_ocsystemmessages",{
+        msdyn_name:TEMPLATE_NAME, msdyn_messagetype:3, msdyn_streamsource:SMS, msdyn_messagetext:"{message}",
+        msdyn_messagedescription:"Used by the Agent SMS panel to send text typed by an agent.",
+        "msdyn_defaultlanguage@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")"
+      }).then(function(t){
+        tmplId = t.__id;
+        return api("POST","msdyn_oclocalizationdatas",{
+          msdyn_entityname:"msdyn_ocsystemmessage", msdyn_entitycolumnname:"msdyn_messagetext", msdyn_entityrecordid:tmplId,
+          msdyn_localizedtext:"{message}", msdyn_defaultlocalizedtext:"{message}", msdyn_languagecode:lang.msdyn_localeid, msdyn_isdefault:true,
+          "msdyn_customerlanguageid@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")",
+          "msdyn_systemmessageid@odata.bind":"/msdyn_ocsystemmessages("+tmplId+")"
+        });
+      });
+    }).then(function(){ return { lang:lang, tmplId:tmplId }; });
+  }
+
+  function createConfig(number, t){
+    return api("GET","msdyn_liveworkstreams?$select=msdyn_liveworkstreamid&$top=1&$filter="+encodeURIComponent("msdyn_streamsource eq "+SMS+" and statecode eq 0")).catch(function(){ return { value:[] }; }).then(function(ws){
+      var body = {
+        msdyn_name:CFG_PREFIX+" - "+number, msdyn_channel:SMS, msdyn_channelid:number, msdyn_type:100000001,
+        msdyn_showinactivities:true, msdyn_enablemessagelogging:true,
+        "msdyn_messagetemplate@odata.bind":"/msdyn_ocsystemmessages("+t.tmplId+")",
+        "msdyn_defaultlocale@odata.bind":"/msdyn_oclanguages("+t.lang.msdyn_oclanguageid+")"
+      };
+      if (ws.value.length) body["msdyn_liveworkstreamid@odata.bind"] = "/msdyn_liveworkstreams("+ws.value[0].msdyn_liveworkstreamid+")";
+      return api("POST","msdyn_ocoutboundconfigurationes", body);
+    });
+  }
+
+  function saveRow(r, tmpl){
+    var p = Promise.resolve();
+    if (r.title !== r.o.title || r.desc !== r.o.desc) {
+      p = p.then(function(){
+        var data = { asms_name:r.title.trim() || r.number, asms_description:r.desc.trim() || null };
+        if (r.metaId) return api("PATCH","asms_smsnumbers("+r.metaId+")", data);
+        data.asms_number = r.number;
+        return api("POST","asms_smsnumbers", data).then(function(x){ r.metaId = x.__id; });
+      });
+    }
+    if (r.enabled !== r.o.enabled) {
+      if (r.enabled) {
+        p = p.then(function(){ return tmpl(); }).then(function(t){
+          if (r.cfgId) return api("PATCH","msdyn_ocoutboundconfigurationes("+r.cfgId+")",{ statecode:0, statuscode:1 });
+          return createConfig(r.number, t);
+        });
+      } else if (r.cfgId) {
+        p = p.then(function(){ return api("PATCH","msdyn_ocoutboundconfigurationes("+r.cfgId+")",{ statecode:1, statuscode:2 }); });
+      }
+    }
+    return p;
+  }
+
+  function save(){
+    var todo = rows.filter(dirty), cached;
+    var tmpl = function(){ return cached || (cached = ensureTemplate()); };
+    $("save").disabled = true; $("reload").disabled = true; $("status").textContent = "Saving…"; banner("","");
+    var errs = [];
+    todo.reduce(function(p, r){
+      return p.then(function(){ return saveRow(r, tmpl); }).catch(function(e){ errs.push(pretty(r.number)+": "+e.message); });
+    }, Promise.resolve()).then(function(){
+      $("reload").disabled = false;
+      return load().then(function(){
+        if (errs.length) banner("err","Some changes weren't saved. "+esc(errs.join(" | "))+(/asms_|property/i.test(errs.join()) ? " (Make sure the latest version of the solution is installed.)" : ""));
+        else banner("ok","Saved. Agents see the change the next time they open the Send SMS tab.");
+        $("status").textContent = "";
+      });
+    });
+  }
+
+  $("save").onclick = save;
+  $("reload").onclick = load;
+  load();
+})();
+</script>
+</body>
+</html>

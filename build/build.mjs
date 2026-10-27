@@ -18,12 +18,28 @@ const WEB_RESOURCES = [
   { id: "11a7bf46-3312-44a5-910e-d7f80505df0d", name: "asms_/composer.html", display: "Agent SMS composer", file: "composer.html" },
   { id: "8ac85fce-f4d3-4066-9c57-ef663766a133", name: "asms_/history.html", display: "Agent SMS history", file: "history.html" },
   { id: "9a16c394-dac9-4156-adf9-8588f7e5529e", name: "asms_/contact.html", display: "Agent SMS contact panel", file: "contact.html" },
+  { id: "3f0b6c1e-6a52-4d0e-9b6f-5c2d7a8e1b44", name: "asms_/admin.html", display: "Agent SMS numbers admin", file: "admin.html" },
 ];
 const FORM_ID = "5b9b6d2a-c37d-4674-9231-fe0fe000134f";
-const ROLE_ID = "ae5b683a-122d-41ad-9775-c0559ac95397";
-const ROLE_NAME = "Agent SMS Console User";
-// Lets agents record themselves as the contact's preferred agent so replies are routed back to them.
-const ROLE_PRIVILEGES = ["Create", "Read", "Write", "Delete", "Append", "AppendTo"].map((p) => `prv${p}msdyn_preferredagent`);
+const priv = (entity, ...ops) => ops.map((p) => `prv${p}${entity}`);
+// Agents: record themselves as the contact's preferred agent so replies are routed back to them.
+const AGENT_ROLE = { id: "ae5b683a-122d-41ad-9775-c0559ac95397", name: "Agent SMS Console User",
+  privileges: [...priv("msdyn_preferredagent", "Create", "Read", "Write", "Delete", "Append", "AppendTo"), ...priv("asms_SmsNumber", "Read"),
+    // lets the Send SMS tab run the "Agent SMS Draft" Copilot prompt
+    ...priv("msdyn_AIModel", "Read"), ...priv("msdyn_AITemplate", "Read")] };
+// Supervisors: choose which SMS numbers agents can use (admin page). Also includes the agent privileges.
+const SUPERVISOR_ROLE = { id: "7d2e4a90-5b1c-4f3a-8c6d-2a9e0b7f1c35", name: "Agent SMS Supervisor",
+  privileges: [
+    ...AGENT_ROLE.privileges,
+    ...priv("asms_SmsNumber", "Create", "Read", "Write", "Delete", "Append", "AppendTo"),
+    ...priv("msdyn_ocphonenumber", "Read"),
+    ...priv("msdyn_ocoutboundconfiguration", "Create", "Read", "Write", "Append", "AppendTo"),
+    ...priv("msdyn_ocsystemmessage", "Create", "Read", "Write", "Append", "AppendTo"),
+    ...priv("msdyn_oclocalizationdata", "Create", "Read", "Write", "Append", "AppendTo"),
+    ...priv("msdyn_oclanguage", "Read", "AppendTo"),
+    ...priv("msdyn_liveworkstream", "Read", "AppendTo"),
+  ] };
+const ROLES = [AGENT_ROLE, SUPERVISOR_ROLE];
 
 const read = (...p) => readFileSync(join(root, ...p), "utf8").replace(/\r\n/g, "\n");
 const br = (id) => "{" + id.toLowerCase() + "}";
@@ -50,7 +66,8 @@ function solutionXml(managed) {
     </Publisher>
     <RootComponents>
       <RootComponent type="1" schemaName="contact" behavior="1" />
-      <RootComponent type="20" id="${br(ROLE_ID)}" behavior="0" />
+      <RootComponent type="1" schemaName="asms_SmsNumber" behavior="0" />
+${ROLES.map((r) => `      <RootComponent type="20" id="${br(r.id)}" behavior="0" />`).join("\n")}
 ${WEB_RESOURCES.map((w) => `      <RootComponent type="61" schemaName="${w.name}" behavior="0" />`).join("\n")}
     </RootComponents>
     <MissingDependencies />
@@ -61,7 +78,7 @@ ${WEB_RESOURCES.map((w) => `      <RootComponent type="61" schemaName="${w.name}
 function customizationsXml() {
   const form = read("src", "contact-form.xml").replace(/^\uFEFF/, "").replace(/<\?xml[^>]*\?>\s*/, "").trim();
   const entities = read("build", "entities.template.xml").replace(/^\uFEFF/, "")
-    .replace("{{FORMID}}", br(FORM_ID)).replace("{{FORM}}", form);
+    .replace("{{FORMID}}", br(FORM_ID)).replace("{{FORM}}", form).replace("{{SMSNUMBER}}", () => read("build", "sms-number-entity.xml").replace(/^\uFEFF/, ""));
   const wr = WEB_RESOURCES.map((w) => `    <WebResource>
       <WebResourceId>${br(w.id)}</WebResourceId>
       <Name>${w.name}</Name>
@@ -79,13 +96,13 @@ function customizationsXml() {
 <ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   ${entities}
   <Roles>
-    <Role id="${br(ROLE_ID)}" name="${ROLE_NAME}">
+${ROLES.map((r) => `    <Role id="${br(r.id)}" name="${r.name}">
       <IsCustomizable>1</IsCustomizable>
       <IsAutoAssigned>0</IsAutoAssigned>
       <RolePrivileges>
-${ROLE_PRIVILEGES.map((p) => `        <RolePrivilege name="${p}" level="Global" />`).join("\n")}
+${r.privileges.map((p) => `        <RolePrivilege name="${p}" level="Global" />`).join("\n")}
       </RolePrivileges>
-    </Role>
+    </Role>`).join("\n")}
   </Roles>
   <Workflows></Workflows>
   <FieldSecurityProfiles></FieldSecurityProfiles>
