@@ -4,7 +4,7 @@
 
 Out of the box, a human agent in Dynamics 365 Contact Center (or Omnichannel for Customer Service) **cannot start an SMS conversation**. Microsoft's documentation says so: representatives can't proactively reach out to customers by starting an SMS conversation in the app. This free, open-source add-on fixes that.
 
-![Send SMS tab on a contact, with the full text history underneath](docs/images/hero.png)
+![Send SMS tab on a contact: number picker, message box, Write with Copilot and the full text history](docs/images/hero.png)
 
 *The screenshots use made-up data.*
 
@@ -252,6 +252,10 @@ It didn't work? Go to [Troubleshooting](#troubleshooting).
 6. When the customer replies, the conversation is assigned to you.
 
 **Several SMS numbers.** If your supervisor has enabled more than one number, a **Send from** picker shows each number with its title and description. With one number it is selected for you. Supervisors (and administrators) see a **Manage numbers** link that opens the admin page, where they switch numbers on or off and give each a title and description. The page needs the **Agent SMS Supervisor** role (or System Administrator).
+
+![Manage numbers page, where a supervisor turns numbers on and gives each a title and description](docs/images/admin-numbers.png)
+
+*Made-up data. The Manage numbers page.*
 
 **Write with Copilot.** Select **Write with Copilot**, describe what the text should say (for example, *confirm tomorrow's appointment at 3 PM*) and select **Write**. If you already typed a draft, Copilot improves it instead. The result lands in the message box for you to read and edit before sending. It uses an AI Builder prompt named **Agent SMS Draft** and consumes Copilot Credits (or AI Builder credits) like any prompt run. If the prompt is missing the button is hidden.
 
