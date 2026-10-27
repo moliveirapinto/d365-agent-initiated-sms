@@ -25,7 +25,7 @@ const ROLE_NAME = "Agent SMS Console User";
 // Lets agents record themselves as the contact's preferred agent so replies are routed back to them.
 const ROLE_PRIVILEGES = ["Create", "Read", "Write", "Delete", "Append", "AppendTo"].map((p) => `prv${p}msdyn_preferredagent`);
 
-const read = (...p) => readFileSync(join(root, ...p), "utf8");
+const read = (...p) => readFileSync(join(root, ...p), "utf8").replace(/\r\n/g, "\n");
 const br = (id) => "{" + id.toLowerCase() + "}";
 const partName = (w) => w.name.replace(/[/.]/g, "") + w.id.toUpperCase();
 
