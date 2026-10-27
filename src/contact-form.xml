@@ -1,0 +1,38 @@
+<form>
+  <tabs>
+    <tab name="asms_general" id="{a5a50001-0000-4000-8000-000000000001}" IsUserDefined="1" expanded="true" showlabel="true">
+      <labels><label description="General" languagecode="1033" /></labels>
+      <columns><column width="100%"><sections>
+        <section name="asms_general_section" id="{a5a50001-0000-4000-8000-000000000002}" IsUserDefined="1" showlabel="false" showbar="false" columns="2" labelwidth="115">
+          <labels><label description="General" languagecode="1033" /></labels>
+          <rows>
+            <row>
+              <cell id="{a5a50001-0000-4000-8000-000000000011}" showlabel="true"><labels><label description="First Name" languagecode="1033" /></labels><control id="firstname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="firstname" disabled="false" /></cell>
+              <cell id="{a5a50001-0000-4000-8000-000000000012}" showlabel="true"><labels><label description="Last Name" languagecode="1033" /></labels><control id="lastname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="lastname" disabled="false" /></cell>
+            </row>
+            <row>
+              <cell id="{a5a50001-0000-4000-8000-000000000013}" showlabel="true"><labels><label description="Mobile Phone" languagecode="1033" /></labels><control id="mobilephone" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="mobilephone" disabled="false" /></cell>
+              <cell id="{a5a50001-0000-4000-8000-000000000014}" showlabel="true"><labels><label description="Email" languagecode="1033" /></labels><control id="emailaddress1" classid="{ADA2203E-B4CD-49be-9DDF-234642B43B52}" datafieldname="emailaddress1" disabled="false" /></cell>
+            </row>
+            <row>
+              <cell id="{a5a50001-0000-4000-8000-000000000015}" showlabel="true"><labels><label description="Do not allow Phone Calls" languagecode="1033" /></labels><control id="donotphone" classid="{67FAC785-CD58-4f9f-ABB3-4B7DDC6ED5ED}" datafieldname="donotphone" disabled="false" /></cell>
+              <cell id="{a5a50001-0000-4000-8000-000000000016}" showlabel="true"><labels><label description="Owner" languagecode="1033" /></labels><control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" disabled="false" /></cell>
+            </row>
+          </rows>
+        </section>
+      </sections></column></columns>
+    </tab>
+    <tab name="tab_asms" id="{a5a50001-0000-4000-8000-000000000003}" IsUserDefined="1" expanded="true" showlabel="true">
+      <labels><label description="Send SMS" languagecode="1033" /></labels>
+      <columns><column width="100%"><sections>
+        <section name="tab_asms_section" id="{a5a50001-0000-4000-8000-000000000004}" IsUserDefined="1" showlabel="false" showbar="false" columns="1">
+          <labels><label description="Send SMS" languagecode="1033" /></labels>
+          <rows>
+            <row><cell id="{a5a50001-0000-4000-8000-000000000021}" showlabel="false" colspan="1" rowspan="20"><labels><label description="Send SMS" languagecode="1033" /></labels><control id="WebResource_asms_contact" classid="{9FDF5F91-88B1-47f4-AD53-C11EFC01A01D}"><parameters><Url>asms_/contact.html</Url><PassParameters>false</PassParameters><Security>false</Security><Scrolling>auto</Scrolling><Border>false</Border></parameters></control></cell></row>
+            <row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row /><row />
+          </rows>
+        </section>
+      </sections></column></columns>
+    </tab>
+  </tabs>
+</form>

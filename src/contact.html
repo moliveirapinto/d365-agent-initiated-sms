@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Send SMS</title>
+<style>
+  html,body{margin:0;height:100%;background:#fff}
+  body{display:flex;flex-direction:column}
+  iframe{border:0;width:100%;display:block}
+  #c{flex:none;height:360px}
+  #h{flex:1;min-height:320px;border-top:1px solid #e3e6ec}
+</style>
+</head>
+<body>
+  <iframe id="c" src="composer.html" title="Send SMS"></iframe>
+  <iframe id="h" src="history.html" title="Text message history"></iframe>
+<script>
+  window.addEventListener("message", function(e){
+    if (e.data && e.data.type === "asms-height" && e.source === document.getElementById("c").contentWindow) {
+      document.getElementById("c").style.height = Math.max(180, e.data.h) + "px";
+    }
+  });
+</script>
+</body>
+</html>

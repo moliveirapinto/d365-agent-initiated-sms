@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Send SMS</title>
+<style>
+  :root { --text:#1f2430; --muted:#667085; --line:#e3e6ec; --brand:#0f6cbd; --brand-dark:#0b5a9d; --ok:#107c41; --warn:#b45309; --err:#c4314b; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#fff}
+  body{font:14px/1.45 "Segoe UI",system-ui,sans-serif;color:var(--text);padding:10px 14px 14px}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
+  .to b{font-size:15px}
+  .to span,.from{color:var(--muted);font-size:12.5px}
+  label{display:block;font-weight:600;font-size:12.5px;margin-bottom:4px}
+  input[type=text],select,textarea{width:100%;border:1px solid #c6cbd5;border-radius:6px;padding:8px 10px;font:inherit;background:#fff;color:inherit}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:transparent}
+  textarea{min-height:96px;resize:vertical}
+  .meta{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:4px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{border:1px solid var(--line);background:#f1f4f9;border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer}
+  .chip:hover{background:#e6edf7}
+  button{font:inherit;border-radius:6px;border:1px solid #c6cbd5;background:#fff;padding:7px 14px;cursor:pointer}
+  button:hover{background:#f3f5f9}
+  button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  button.primary:hover{background:var(--brand-dark)}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  .msg{border-radius:8px;padding:8px 11px;margin-bottom:10px;font-size:13px}
+  .msg.err{background:#fdecef;border:1px solid #f4c3cc;color:#8a1f33}
+  .msg.warn{background:#fff6e5;border:1px solid #f3d9a4;color:#7a4a05}
+  .msg.ok{background:#e9f7ef;border:1px solid #bfe3cd;color:#0b5a2e}
+  .msg.info{background:#eaf3fb;border:1px solid #c5dcf2;color:#14416d}
+  .actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px}
+  .row{display:flex;gap:8px;align-items:center}
+  .check{display:flex;gap:8px;align-items:center;font-weight:400;font-size:13px;margin-top:8px}
+  .hint{color:var(--muted);font-size:12px}
+  .hist{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  .hist td{padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+  .hist tr:last-child td{border-bottom:0}
+  .st-ok{color:var(--ok);font-weight:600}.st-err{color:var(--err);font-weight:600}.st-pend{color:var(--warn);font-weight:600}
+  h3{font-size:13px;margin:16px 0 0}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+  <div id="banner"></div>
+
+  <div id="setup" class="hidden">
+    <div class="msg info"><b>One-time setup.</b> Choose the SMS number agents text from. This creates a message template and an outbound configuration in this environment. It needs an administrator.</div>
+    <label for="setupNum">SMS number</label>
+    <select id="setupNum"></select>
+    <div class="actions"><span id="setupStatus" class="hint"></span><button id="setupBtn" class="primary" type="button">Set up SMS sending</button></div>
+  </div>
+
+  <div id="compose" class="hidden">
+  <div class="top">
+    <div class="to"><b id="toName">Loading…</b><br><span id="toNum"></span></div>
+    <div class="from" id="fromRow"></div>
+  </div>
+
+  <div id="needNum" class="hidden">
+    <div class="msg warn">This contact has no mobile number on the record. Enter one to text them. It is saved to the contact's Mobile Phone so replies are matched to them.</div>
+    <label for="newNum">Mobile number</label>
+    <input id="newNum" type="text" placeholder="+1 555 123 4567" />
+    <div style="height:10px"></div>
+  </div>
+
+  <div id="dnd" class="hidden">
+    <div class="msg warn" style="margin-bottom:6px">This contact is flagged Do Not Phone.</div>
+    <label class="check" style="margin:0 0 10px"><input id="dndOverride" type="checkbox" /> I confirm the customer agreed to receive text messages.</label>
+  </div>
+
+  <label for="body">Message</label>
+  <textarea id="body" placeholder="Type your message"></textarea>
+  <div class="meta"><span id="seg"></span><span id="count"></span></div>
+  <div class="chips" id="chips"></div>
+  <label class="check"><input id="sig" type="checkbox" checked /> <span>Sign with my name <span id="sigName" class="hint"></span></span></label>
+
+  <div class="actions">
+    <span id="status" class="hint"></span>
+    <div class="row">
+      <button id="clear" type="button">Clear</button>
+      <button id="send" class="primary" type="button">Send SMS</button>
+    </div>
+  </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  var CFG_PREFIX = "Agent SMS";
+  var TEMPLATE_NAME = "Agent SMS - free text";
+  var API = "/api/data/v9.2/";
+  var TEMPLATES = [
+    { l:"Introduce myself", t:"Hi {first}, this is {agent}. How can I help you today?" },
+    { l:"Follow up", t:"Hi {first}, thanks for reaching out. I'm following up on your request. Do you have a moment to chat?" },
+    { l:"Confirm resolved", t:"Hi {first}, just checking in to confirm everything was resolved. Reply here if you need anything else." },
+    { l:"Missed your call", t:"Hi {first}, I tried to reach you by phone. Reply here and I'll help you by text." }
+  ];
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { contactId:null, contact:null, number:null, me:null, sending:false, cfgId:null };
+
+  function xrm(){ var w = window; for (var i = 0; i < 5; i++) { try { if (w.Xrm && w.Xrm.Page && w.Xrm.Page.data) return w.Xrm; } catch(e){} if (w.parent === w) break; w = w.parent; } try { return (window.parent && window.parent.Xrm) || window.Xrm || null; } catch(e){ return null; } }
+  function base(){ var x = xrm(); try { if (x && x.Utility) return x.Utility.getGlobalContext().getClientUrl(); } catch(e){} return location.origin; }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+  function banner(kind, html){ $("banner").innerHTML = html ? '<div class="msg '+kind+'">'+html+'</div>' : ""; }
+
+  function api(method, path, body){
+    var h = { "Accept":"application/json", "OData-MaxVersion":"4.0", "OData-Version":"4.0", "Content-Type":"application/json; charset=utf-8" };
+    return fetch(base()+API+path, { method:method, headers:h, credentials:"same-origin", body: body? JSON.stringify(body): undefined })
+      .then(function(r){
+        if (r.status === 204) return {};
+        return r.text().then(function(t){
+          var j = t ? JSON.parse(t) : {};
+          if (!r.ok) { var e = new Error((j.error && j.error.message) || ("HTTP "+r.status)); e.status = r.status; throw e; }
+          return j;
+        });
+      });
+  }
+
+  function contactIdFromHost(){
+    try {
+      var x = xrm();
+      if (x && x.Page && x.Page.data && x.Page.data.entity) { var id = x.Page.data.entity.getId(); if (id) return id.replace(/[{}]/g,"").toLowerCase(); }
+    } catch(e){}
+    var m = /[?&]contactId=([^&]+)/.exec(location.search);
+    return m ? decodeURIComponent(m[1]).replace(/[{}]/g,"").toLowerCase() : null;
+  }
+
+  function normalize(raw){
+    var s = String(raw||"").trim();
+    if (!s) return null;
+    var plus = s.charAt(0) === "+", d = s.replace(/\D/g,"");
+    if (!d) return null;
+    if (!plus) {
+      if (d.length === 10) d = "1"+d;
+      else if (!(d.length === 11 && d.charAt(0) === "1") && d.length < 8) return null;
+    }
+    if (d.length < 8 || d.length > 15) return null;
+    return "+"+d;
+  }
+  function pretty(e164){ var m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164||""); return m ? "+1 ("+m[1]+") "+m[2]+"-"+m[3] : (e164||""); }
+
+  /* ---------- contact ---------- */
+  function loadContact(){
+    state.contactId = contactIdFromHost();
+    if (!state.contactId) { $("toName").textContent = "Save the contact first"; banner("warn","Save this contact to send a text."); return Promise.resolve(); }
+    return api("GET","contacts("+state.contactId+")?$select=fullname,firstname,mobilephone,telephone1,donotphone").then(function(c){
+      state.contact = c;
+      state.number = normalize(c.mobilephone) || normalize(c.telephone1);
+      $("toName").textContent = c.fullname || "Contact";
+      $("toNum").textContent = state.number ? pretty(state.number) : "";
+      $("needNum").classList.toggle("hidden", !!state.number);
+      $("dnd").classList.toggle("hidden", !c.donotphone);
+      refresh();
+    }).catch(function(e){ banner("err","Couldn't read this contact: "+esc(e.message)); });
+  }
+
+  /* ---------- message ---------- */
+  var GSM = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà^{}\\[~]|€";
+  function segments(text){
+    if (!text) return { len:0, segs:0, ucs:false };
+    var i, len = 0;
+    for (i=0;i<text.length;i++){ if (GSM.indexOf(text.charAt(i)) < 0) { len = text.length; return { len:len, ucs:true, segs: len<=70?1:Math.ceil(len/67) }; } }
+    for (i=0;i<text.length;i++) len += "^{}\\[~]|€".indexOf(text.charAt(i)) >= 0 ? 2 : 1;
+    return { len:len, ucs:false, segs: len<=160?1:Math.ceil(len/153) };
+  }
+  function composed(){
+    var t = $("body").value.trim();
+    if (t && $("sig").checked && state.me) t += "\n- "+state.me.first;
+    return t;
+  }
+  function fill(t){
+    var first = state.contact && state.contact.firstname ? state.contact.firstname : "there";
+    return t.replace(/\{first\}/g, first).replace(/\{agent\}/g, state.me ? state.me.first : "your agent");
+  }
+  function numberToUse(){ return state.number || normalize($("newNum").value); }
+  function refresh(){
+    var s = segments(composed());
+    $("count").textContent = s.len + " characters";
+    $("seg").textContent = s.segs ? (s.segs + (s.segs===1?" message segment":" message segments") + (s.ucs?" (special characters)":"")) : "";
+    var c = state.contact;
+    $("send").disabled = !(c && state.cfgId && numberToUse() && $("body").value.trim().length > 0 && !state.sending && (!c.donotphone || $("dndOverride").checked));
+  }
+
+  /* ---------- reply routing: make the sender this contact's preferred agent ---------- */
+  function claimReplies(){
+    if (!state.me) return Promise.reject(new Error("user not loaded"));
+    return api("GET","msdyn_preferredagents?$select=msdyn_preferredagentid&$filter="+encodeURIComponent("_msdyn_recordid_value eq "+state.contactId+" and msdyn_temporarypreference eq true"))
+      .then(function(r){
+        return Promise.all(r.value.map(function(p){ return api("DELETE","msdyn_preferredagents("+p.msdyn_preferredagentid+")").catch(function(){}); }));
+      }).then(function(){
+        return api("POST","msdyn_preferredagents",{
+          msdyn_name:"Agent SMS reply routing",
+          "msdyn_recordId_contact@odata.bind":"/contacts("+state.contactId+")",
+          "msdyn_systemuserid@odata.bind":"/systemusers("+state.me.id+")",
+          msdyn_preferencerating:1, msdyn_recordtype:192350001, msdyn_temporarypreference:true
+        });
+      });
+  }
+
+  /* ---------- send ---------- */
+  function send(){
+    if (state.sending) return;
+    var c = state.contact, text = composed(), num = numberToUse();
+    if (!c || !text || !num) return;
+    var cfgId = state.cfgId;
+    state.sending = true; refresh(); banner("",""); $("status").textContent = "Sending…";
+    var sentAt = new Date(Date.now() - 5000).toISOString();
+    var prep = state.number ? Promise.resolve() : api("PATCH","contacts("+state.contactId+")",{ mobilephone:num }).then(function(){ state.number = num; $("toNum").textContent = pretty(num); $("needNum").classList.add("hidden"); refreshForm(); });
+    var routeWarn = "";
+    prep.then(function(){
+      return claimReplies().catch(function(e){ routeWarn = "Sent, but replies may not come back to you: "+esc(e.message); });
+    }).then(function(){
+      var item = { tocontactid:num, optin: !c.donotphone || $("dndOverride").checked,
+        contextitems:{ msdyn_ocoutboundconfigurationid:cfgId, regardingobjectid:state.contactId, entityrelationshipname:"contact_msdyn_ocoutboundmessages", message:text } };
+      return api("POST","msdyn_InvokeOutboundAPI",{
+        OutboundSettingsRecord:{ "@odata.type":"Microsoft.Dynamics.CRM.msdyn_ocoutboundconfiguration", msdyn_ocoutboundconfigurationid:cfgId },
+        ContactList: JSON.stringify([item])
+      });
+    }).then(function(){
+      $("status").textContent = "Sent to the carrier. Confirming delivery…";
+      confirmDelivery(num, sentAt, 0, routeWarn);
+      $("body").value = ""; refresh();
+      refreshTimeline();
+    }).catch(function(e){
+      banner("err","Couldn't send: "+esc(e.message)); $("status").textContent = "";
+    }).then(function(){ state.sending = false; refresh(); });
+  }
+
+  function refreshHistory(){
+    try { var fr = window.parent.document.querySelectorAll("iframe"); for (var i=0;i<fr.length;i++) { if (/history\.html/.test(fr[i].src||"")) fr[i].contentWindow.postMessage("asms-refresh","*"); } } catch(e){}
+  }
+  function refreshForm(){ try { var x = xrm(); if (x && x.Page && x.Page.data) x.Page.data.refresh(false); } catch(e){} }
+  function refreshTimeline(){
+    setTimeout(function(){ try { var x = xrm(); var tl = x && x.Page && x.Page.getControl && x.Page.getControl("Timeline"); if (tl && tl.refresh) tl.refresh(); } catch(e){} }, 6000);
+  }
+
+  function confirmDelivery(num, sentAt, tries, warn){
+    tries = tries || 0;
+    var d = num.replace(/^\+/,"");
+    api("GET","msdyn_ocoutboundmessages?$select=subject,statecode,msdyn_failurereason&$top=1&$orderby=createdon desc&$filter="+encodeURIComponent("createdon gt "+sentAt+" and msdyn_ocreceiverchannelid eq '"+d+"'"))
+      .then(function(r){
+        var m = r.value[0];
+        if (m && m.statecode === 1) {
+          if (!m.msdyn_failurereason && !/fail/i.test(m.subject||"")) {
+            if (warn) banner("warn","Delivered to "+esc(pretty(num))+". "+warn);
+            else banner("ok","Delivered to "+esc(pretty(num))+". Their reply will be routed to you.");
+          } else banner("err","The carrier rejected the message: "+esc(m.msdyn_failurereason||m.subject));
+          $("status").textContent = ""; refreshHistory(); return;
+        }
+        if (tries < 12) setTimeout(function(){ confirmDelivery(num, sentAt, tries+1, warn); }, 2500);
+        else { banner(warn?"warn":"info","Message handed off. Delivery confirmation is taking longer than usual."+(warn?" "+warn:"")); $("status").textContent=""; refreshHistory(); }
+      }).catch(function(){ $("status").textContent=""; refreshHistory(); });
+  }
+
+  /* ---------- init ---------- */
+  function init(){
+    $("chips").innerHTML = TEMPLATES.map(function(t,i){ return '<span class="chip" data-i="'+i+'" title="'+esc(t.t)+'">'+esc(t.l)+'</span>'; }).join("");
+    Array.prototype.forEach.call($("chips").children, function(c){ c.onclick = function(){ $("body").value = fill(TEMPLATES[+c.getAttribute("data-i")].t); refresh(); $("body").focus(); }; });
+    $("body").addEventListener("input", refresh); $("newNum").addEventListener("input", refresh);
+    $("sig").addEventListener("change", refresh); $("dndOverride").addEventListener("change", refresh);
+    $("clear").onclick = function(){ $("body").value=""; banner("",""); refresh(); };
+    $("send").onclick = send;
+    $("body").addEventListener("keydown", function(e){ if ((e.ctrlKey||e.metaKey) && e.key==="Enter") send(); });
+
+    api("GET","WhoAmI").then(function(w){
+      return api("GET","systemusers("+w.UserId+")?$select=fullname,firstname").then(function(u){
+        state.me = { id:w.UserId, name:u.fullname, first:u.firstname || (u.fullname||"").split(" ")[0] };
+        $("sigName").textContent = "(- "+state.me.first+")"; refresh();
+      });
+    }).catch(function(){});
+
+    $("setupBtn").onclick = runSetup;
+    loadConfigs();
+    loadContact();
+    refresh();
+    if (window.parent !== window && window.ResizeObserver) {
+      var report = function(){ try { window.parent.postMessage({ type:"asms-height", h:Math.ceil(document.body.getBoundingClientRect().height + 8) }, "*"); } catch(e){} };
+      new ResizeObserver(report).observe(document.body); report();
+    }
+  }
+
+  /* ---------- outbound configurations (one per SMS number) ---------- */
+  function loadConfigs(){
+    return api("GET","msdyn_ocoutboundconfigurationes?$select=msdyn_name,msdyn_channelid&$orderby=msdyn_name&$filter="+encodeURIComponent("msdyn_channel eq 192340000 and statecode eq 0 and startswith(msdyn_name,'"+CFG_PREFIX+"')"))
+      .then(function(r){
+        var v = r.value;
+        if (!v.length) return showSetup();
+        $("setup").classList.add("hidden"); $("compose").classList.remove("hidden");
+        state.cfgId = v[0].msdyn_ocoutboundconfigurationid;
+        var f = $("fromRow");
+        if (v.length > 1) {
+          f.innerHTML = '<label for="from">Send from</label><select id="from">'+v.map(function(c){ return '<option value="'+c.msdyn_ocoutboundconfigurationid+'">'+esc(pretty(c.msdyn_channelid))+'</option>'; }).join("")+'</select>';
+          $("from").onchange = function(){ state.cfgId = this.value; };
+        } else f.textContent = "From " + pretty(v[0].msdyn_channelid);
+        refresh();
+      }).catch(function(e){ $("compose").classList.remove("hidden"); banner("err","Couldn't read the SMS configuration: "+esc(e.message)); });
+  }
+
+  function showSetup(){
+    $("compose").classList.add("hidden"); $("setup").classList.remove("hidden");
+    return api("GET","msdyn_ocphonenumbers?$select=msdyn_phonenumber&$orderby=msdyn_phonenumber&$filter="+encodeURIComponent("msdyn_smsoutboundenabled eq true and statecode eq 0"))
+      .then(function(r){
+        if (!r.value.length) { $("setupNum").innerHTML = ""; $("setupBtn").disabled = true; banner("warn","No SMS number with outbound enabled was found. Provision an SMS channel first (see the README), then reopen this tab."); return; }
+        $("setupNum").innerHTML = r.value.map(function(n){ return '<option value="'+esc(n.msdyn_phonenumber)+'">'+esc(pretty(n.msdyn_phonenumber))+'</option>'; }).join("");
+        $("setupBtn").disabled = false;
+      }).catch(function(e){ banner("err","Couldn't list SMS numbers: "+esc(e.message)); });
+  }
+
+  function post(set, body){
+    return fetch(base()+API+set, { method:"POST", credentials:"same-origin", body:JSON.stringify(body),
+      headers:{ "Accept":"application/json", "OData-MaxVersion":"4.0", "OData-Version":"4.0", "Content-Type":"application/json; charset=utf-8" } })
+      .then(function(r){ return r.text().then(function(t){
+        if (!r.ok) { var j = {}; try { j = JSON.parse(t); } catch(e){} throw new Error((j.error && j.error.message) || ("HTTP "+r.status)); }
+        var m = /\(([^)]+)\)\s*$/.exec(r.headers.get("OData-EntityId")||""); return m ? m[1] : null; }); });
+  }
+
+  function runSetup(){
+    var number = $("setupNum").value; if (!number) return;
+    $("setupBtn").disabled = true; $("setupStatus").textContent = "Setting up…"; banner("","");
+    var lang, tmplId;
+    api("GET","msdyn_oclanguages?$select=msdyn_oclanguageid,msdyn_localeid&$top=300").then(function(r){
+      var l = r.value.filter(function(x){ return x.msdyn_localeid === 1033; })[0] || r.value[0];
+      if (!l) throw new Error("No languages are configured in this environment.");
+      lang = l;
+      return api("GET","msdyn_ocsystemmessages?$select=msdyn_ocsystemmessageid&$top=1&$filter="+encodeURIComponent("msdyn_name eq '"+TEMPLATE_NAME+"'"));
+    }).then(function(r){
+      if (r.value.length) { tmplId = r.value[0].msdyn_ocsystemmessageid; return; }
+      return post("msdyn_ocsystemmessages",{
+        msdyn_name:TEMPLATE_NAME, msdyn_messagetype:3, msdyn_streamsource:192340000, msdyn_messagetext:"{message}",
+        msdyn_messagedescription:"Used by the Agent SMS panel to send text typed by an agent.",
+        "msdyn_defaultlanguage@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")"
+      }).then(function(id){
+        tmplId = id;
+        return post("msdyn_oclocalizationdatas",{
+          msdyn_entityname:"msdyn_ocsystemmessage", msdyn_entitycolumnname:"msdyn_messagetext", msdyn_entityrecordid:id,
+          msdyn_localizedtext:"{message}", msdyn_defaultlocalizedtext:"{message}", msdyn_languagecode:lang.msdyn_localeid, msdyn_isdefault:true,
+          "msdyn_customerlanguageid@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")",
+          "msdyn_systemmessageid@odata.bind":"/msdyn_ocsystemmessages("+id+")"
+        });
+      });
+    }).then(function(){
+      return api("GET","msdyn_liveworkstreams?$select=msdyn_liveworkstreamid&$top=1&$filter="+encodeURIComponent("msdyn_streamsource eq 192340000 and statecode eq 0")).catch(function(){ return { value:[] }; });
+    }).then(function(ws){
+      var body = {
+        msdyn_name:CFG_PREFIX+" - "+number, msdyn_channel:192340000, msdyn_channelid:number, msdyn_type:100000001,
+        msdyn_showinactivities:true, msdyn_enablemessagelogging:true,
+        "msdyn_messagetemplate@odata.bind":"/msdyn_ocsystemmessages("+tmplId+")",
+        "msdyn_defaultlocale@odata.bind":"/msdyn_oclanguages("+lang.msdyn_oclanguageid+")"
+      };
+      if (ws.value.length) body["msdyn_liveworkstreamid@odata.bind"] = "/msdyn_liveworkstreams("+ws.value[0].msdyn_liveworkstreamid+")";
+      return post("msdyn_ocoutboundconfigurationes", body);
+    }).then(function(){
+      $("setupStatus").textContent = ""; banner("ok","SMS sending is set up for "+esc(pretty(number))+".");
+      return loadConfigs();
+    }).catch(function(e){
+      $("setupBtn").disabled = false; $("setupStatus").textContent = "";
+      banner("err","Setup failed: "+esc(e.message)+" (an administrator, such as an Omnichannel administrator or System Administrator, must run it once).");
+    });
+  }
+  init();
+})();
+</script>
+</body>
+</html>

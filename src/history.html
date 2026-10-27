@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Text message history</title>
+<style>
+  :root { --text:#1f2430; --muted:#667085; --line:#e3e6ec; --brand:#0f6cbd; --cust:#f0f2f6; --agent:#dcebfa; --bot:#ecebf7; --out:#d6f0e0; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#fff;height:100%}
+  body{font:13px/1.4 "Segoe UI",system-ui,sans-serif;color:var(--text);padding:8px 10px 10px;display:flex;flex-direction:column}
+  .bar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+  .who{font-weight:600}
+  .who span{font-weight:400;color:var(--muted)}
+  .tools{display:flex;gap:6px}
+  button{font:inherit;font-size:12px;border-radius:5px;border:1px solid #c6cbd5;background:#fff;padding:3px 9px;cursor:pointer;color:inherit}
+  button:hover{background:#f3f5f9}
+  button:disabled{opacity:.5;cursor:default}
+  #thread{flex:1;overflow:auto;padding-right:2px}
+  .day{position:sticky;top:0;text-align:center;margin:10px 0 6px;z-index:1}
+  .day span{background:#fff;border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:11px;color:var(--muted)}
+  .boundary{display:flex;align-items:center;gap:8px;margin:10px 0 6px;color:var(--muted);font-size:11px}
+  .boundary:before,.boundary:after{content:"";flex:1;border-top:1px dashed var(--line)}
+  .m{display:flex;flex-direction:column;margin:3px 0;max-width:88%}
+  .m.cust{align-items:flex-start}
+  .m.agent,.m.bot,.m.out{align-items:flex-end;margin-left:auto}
+  .b{padding:6px 10px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
+  .cust .b{background:var(--cust);border-top-left-radius:4px}
+  .agent .b{background:var(--agent);border-top-right-radius:4px}
+  .bot .b{background:var(--bot);border-top-right-radius:4px}
+  .out .b{background:var(--out);border-top-right-radius:4px}
+  .meta{font-size:11px;color:var(--muted);margin:1px 4px}
+  .tag{font-size:10px;text-transform:uppercase;letter-spacing:.3px;border-radius:4px;padding:0 5px;margin-left:4px;background:#e8edf5;color:#42506b}
+  .empty,.note{color:var(--muted);text-align:center;padding:14px 4px;font-size:12.5px}
+  .err{color:#8a1f33}
+  .att{font-style:italic;color:var(--muted)}
+  a{color:var(--brand)}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="who" id="who">Text messages</div>
+    <div class="tools">
+      <button id="order" type="button" title="Switch order">Newest first</button>
+      <button id="refresh" type="button" title="Refresh">Refresh</button>
+    </div>
+  </div>
+  <div id="thread"><div class="empty">Loading…</div></div>
+  <div class="note" id="more" style="display:none"><button id="moreBtn" type="button">Load older conversations</button></div>
+
+<script>
+(function(){
+  "use strict";
+  var API = "/api/data/v9.2/";
+  var PAGE = 8;
+  var SMS = "192340000";
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { ctx:null, number:null, contactId:null, currentConv:null, newestFirst:true, items:[], convs:[], convSkip:0, hasMore:false, loading:false };
+
+  function xrm(){ var w = window; for (var i = 0; i < 5; i++) { try { if (w.Xrm && w.Xrm.Page && w.Xrm.Page.data) return w.Xrm; } catch(e){} if (w.parent === w) break; w = w.parent; } try { return (window.parent && window.parent.Xrm) || window.Xrm || null; } catch(e){ return null; } }
+  function base(){ var x = xrm(); try { if (x && x.Utility) return x.Utility.getGlobalContext().getClientUrl(); } catch(e){} return location.origin; }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+  function odata(s){ return String(s).replace(/'/g,"''"); }
+  function linkify(t){ return esc(t).replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'); }
+
+  function api(path){
+    return fetch(base()+API+path, { method:"GET", credentials:"same-origin",
+      headers:{ "Accept":"application/json", "OData-MaxVersion":"4.0", "OData-Version":"4.0", "Prefer":'odata.include-annotations="OData.Community.Display.V1.FormattedValue"' } })
+      .then(function(r){ return r.text().then(function(t){
+        var j = t ? JSON.parse(t) : {};
+        if (!r.ok) throw new Error((j.error && j.error.message) || ("HTTP "+r.status));
+        return j; }); });
+  }
+
+  function normalize(raw){
+    var s = String(raw||"").trim(); if (!s) return null;
+    var plus = s.charAt(0) === "+", d = s.replace(/\D/g,""); if (!d) return null;
+    if (!plus) { if (d.length === 10) d = "1"+d; else if (!(d.length === 11 && d.charAt(0)==="1") && d.length < 8) return null; }
+    return (d.length < 8 || d.length > 15) ? null : "+"+d;
+  }
+  function pretty(e){ var m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e||""); return m ? "+1 ("+m[1]+") "+m[2]+"-"+m[3] : (e||""); }
+
+  function hostRecord(){
+    var out = { name:null, id:null };
+    try {
+      var x = xrm();
+      if (x && x.Page && x.Page.data && x.Page.data.entity) {
+        out.name = x.Page.data.entity.getEntityName();
+        out.id = (x.Page.data.entity.getId()||"").replace(/[{}]/g,"").toLowerCase();
+      }
+    } catch(e){}
+    if (!out.id) {
+      var m = /[?&]entity=([^&]+)&id=([^&]+)/.exec(location.search);
+      if (m) { out.name = decodeURIComponent(m[1]); out.id = decodeURIComponent(m[2]).toLowerCase(); }
+    }
+    return out;
+  }
+
+  /* ---------- who is the customer / which number ---------- */
+  function resolveContext(){
+    var h = hostRecord();
+    if (!h.id) return Promise.reject(new Error("Open a conversation or contact to see its text history."));
+    if (h.name === "contact") {
+      return api("contacts("+h.id+")?$select=fullname,mobilephone,telephone1").then(function(c){
+        return { contactId:h.id, name:c.fullname, number:normalize(c.mobilephone)||normalize(c.telephone1), conv:null };
+      });
+    }
+    if (h.name === "msdyn_ocliveworkitem") {
+      return api("msdyn_ocliveworkitems("+h.id+")?$select=subject,_msdyn_customer_value").then(function(w){
+        var ctx = { contactId:null, name:null, number:null, conv:h.id };
+        var m = /^\s*(\+?\d[\d\s\-().]{6,})\s*:/.exec(w.subject||"");
+        if (m) ctx.number = normalize(m[1]);
+        var cust = w._msdyn_customer_value, ct = w["_msdyn_customer_value@Microsoft.Dynamics.CRM.lookuplogicalname"];
+        if (!cust) return ctx;
+        ctx.name = w["_msdyn_customer_value@OData.Community.Display.V1.FormattedValue"];
+        if (ct === "contact") ctx.contactId = cust;
+        var set = ct === "account" ? "accounts" : "contacts";
+        var sel = ct === "account" ? "telephone1" : "mobilephone,telephone1";
+        return api(set+"("+cust+")?$select="+sel).then(function(c){
+          if (!ctx.number) ctx.number = normalize(c.mobilephone)||normalize(c.telephone1);
+          return ctx;
+        }).catch(function(){ return ctx; });
+      });
+    }
+    return Promise.reject(new Error("This form isn't supported."));
+  }
+
+  /* ---------- load ---------- */
+  function convFilter(){
+    var parts = [];
+    if (state.number) parts.push("startswith(subject,'"+odata(state.number)+"')");
+    if (state.contactId) parts.push("_msdyn_customer_value eq "+state.contactId);
+    if (!parts.length) return null;
+    var f = "msdyn_channel eq '"+SMS+"' and statecode eq 1 and ("+parts.join(" or ")+")";
+    if (state.currentConv) f += " and activityid ne "+state.currentConv;
+    return f;
+  }
+
+  function parseTranscript(body, conv){
+    var out = [];
+    try {
+      var text = decodeURIComponent(escape(atob(body)));
+      var outer = JSON.parse(text);
+      (Array.isArray(outer) ? outer : [outer]).forEach(function(o){
+        var arr = o.Content ? JSON.parse(o.Content) : (Array.isArray(o) ? o : []);
+        arr.forEach(function(m){
+          if (m.isControlMessage || m.deleted) return;
+          var t = m.content;
+          var atts = (m.attachments||[]).map(function(a){ return a.name || a.fileName || "attachment"; });
+          if ((!t || !String(t).trim()) && !atts.length) return;
+          if (/^\s*\{\s*"EventName"/.test(t||"") || /ContextEvent|\bcontext\b/i.test(m.tags||"")) return;
+          var from = m.from && (m.from.user || m.from.application) || {};
+          var kind = !m.isFromAgent ? "cust" : (m.isVirtualAgent ? "bot" : "agent");
+          out.push({ t:new Date(m.created||m.createdDateTime).getTime(), kind:kind, who:from.displayName||"", text:(t||"")+"", atts:atts, conv:conv });
+        });
+      });
+    } catch(e){}
+    return out;
+  }
+
+  function loadConversations(){
+    var f = convFilter();
+    if (!f) return Promise.resolve({ convs:[], more:false });
+    return api("msdyn_ocliveworkitems?$select=createdon,subject&$orderby=createdon desc&$top="+(state.convSkip+PAGE+1)+"&$filter="+encodeURIComponent(f))
+      .then(function(r){
+        var all = r.value.slice(state.convSkip);
+        return { convs:all.slice(0,PAGE), more:all.length > PAGE };
+      });
+  }
+  function loadTranscripts(convs){
+    if (!convs.length) return Promise.resolve([]);
+    var ids = convs.map(function(c){ return c.activityid; });
+    var f = ids.map(function(i){ return "_msdyn_liveworkitemidid_value eq "+i; }).join(" or ");
+    return api("msdyn_transcripts?$select=msdyn_transcriptid,_msdyn_liveworkitemidid_value&$filter="+encodeURIComponent(f)).then(function(t){
+      var map = {}; t.value.forEach(function(x){ map[x.msdyn_transcriptid] = x._msdyn_liveworkitemidid_value; });
+      var tids = Object.keys(map);
+      if (!tids.length) return [];
+      var af = tids.map(function(i){ return "_objectid_value eq "+i; }).join(" or ");
+      return api("annotations?$select=documentbody,_objectid_value&$filter="+encodeURIComponent(af)).then(function(a){
+        var items = [];
+        a.value.forEach(function(n){ if (n.documentbody) items = items.concat(parseTranscript(n.documentbody, map[n._objectid_value])); });
+        return items;
+      });
+    });
+  }
+
+  function loadOutbound(){
+    var parts = [];
+    if (state.number) parts.push("msdyn_ocreceiverchannelid eq '"+odata(state.number.replace(/^\+/,""))+"'");
+    if (state.contactId) parts.push("_regardingobjectid_value eq "+state.contactId);
+    if (!parts.length) return Promise.resolve([]);
+    return api("msdyn_ocoutboundmessages?$select=createdon,msdyn_ocmessagetext,msdyn_failurereason,statecode,_ownerid_value&$orderby=createdon desc&$top=100&$filter="+encodeURIComponent("msdyn_occhanneltype eq '"+SMS+"' and ("+parts.join(" or ")+")"))
+      .then(function(r){
+        return r.value.map(function(m){
+          return { t:new Date(m.createdon).getTime(), kind:"out", who:m["_ownerid_value@OData.Community.Display.V1.FormattedValue"]||"", text:m.msdyn_ocmessagetext||"", atts:[], failed:m.msdyn_failurereason||null };
+        });
+      }).catch(function(){ return []; });
+  }
+
+  function load(first){
+    if (state.loading) return;
+    state.loading = true;
+    var p = first ? loadOutbound() : Promise.resolve(null);
+    Promise.all([ loadConversations(), p ]).then(function(r){
+      state.convs = state.convs.concat(r[0].convs);
+      state.hasMore = r[0].more; state.convSkip += r[0].convs.length;
+      return loadTranscripts(r[0].convs).then(function(msgs){
+        if (first) state.items = r[1] || [];
+        state.items = state.items.concat(msgs);
+        render();
+      });
+    }).catch(function(e){
+      $("thread").innerHTML = '<div class="empty err">Couldn\'t load the history: '+esc(e.message)+'</div>';
+    }).then(function(){ state.loading = false; });
+  }
+
+  /* ---------- render ---------- */
+  function dayLabel(t){ var d = new Date(t), n = new Date(); var same = function(a,b){ return a.toDateString()===b.toDateString(); };
+    var y = new Date(n.getTime()-86400000);
+    if (same(d,n)) return "Today"; if (same(d,y)) return "Yesterday";
+    return d.toLocaleDateString([], { weekday:"short", month:"short", day:"numeric", year: d.getFullYear()===n.getFullYear()?undefined:"numeric" }); }
+  function timeLabel(t){ return new Date(t).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }); }
+
+  function bubble(m){
+    var who = m.kind === "cust" ? "" : esc(m.who||"");
+    var tag = m.kind === "bot" ? '<span class="tag">Bot</span>' : (m.kind === "out" ? '<span class="tag">Outbound</span>' : "");
+    var body = m.text ? linkify(m.text) : "";
+    if (m.atts && m.atts.length) body += (body?"\n":"")+'<span class="att">'+m.atts.map(esc).join(", ")+'</span>';
+    var fail = m.failed ? '<div class="meta err">Not delivered: '+esc(m.failed)+'</div>' : "";
+    return '<div class="m '+m.kind+'"><div class="b">'+body+'</div><div class="meta">'+(who?who+" · ":"")+timeLabel(m.t)+tag+'</div>'+fail+'</div>';
+  }
+
+  function render(){
+    var items = state.items.slice().sort(function(a,b){ return a.t - b.t; });
+    if (state.newestFirst) items.reverse();
+    $("who").innerHTML = esc(state.ctx.name||"Text messages")+(state.number?' <span>'+esc(pretty(state.number))+'</span>':"");
+    if (!items.length) {
+      $("thread").innerHTML = '<div class="empty">'+(state.number||state.contactId ? "No earlier text messages with this customer." : "No phone number found for this customer, so there is no history to show.")+'</div>';
+    } else {
+      var html = "", lastDay = "", lastConv;
+      items.forEach(function(m){
+        var d = dayLabel(m.t);
+        if (d !== lastDay) { html += '<div class="day"><span>'+esc(d)+'</span></div>'; lastDay = d; lastConv = undefined; }
+        var key = m.conv || (m.kind === "out" ? "out" : "");
+        if (key !== lastConv) {
+          if (m.conv) html += '<div class="boundary">Conversation</div>';
+          lastConv = key;
+        }
+        html += bubble(m);
+      });
+      $("thread").innerHTML = html;
+    }
+    $("more").style.display = state.hasMore ? "" : "none";
+    $("order").textContent = state.newestFirst ? "Newest first" : "Oldest first";
+  }
+
+  function reset(){ state.items = []; state.convs = []; state.convSkip = 0; state.hasMore = false; load(true); }
+
+  function init(){
+    $("order").onclick = function(){ state.newestFirst = !state.newestFirst; render(); };
+    $("refresh").onclick = reset;
+    window.addEventListener("message", function(e){ if (e.data === "asms-refresh") reset(); });
+    $("moreBtn").onclick = function(){ load(false); };
+    resolveContext().then(function(ctx){
+      state.ctx = ctx; state.number = ctx.number; state.contactId = ctx.contactId; state.currentConv = ctx.conv;
+      reset();
+      setInterval(function(){ if (!document.hidden) reset(); }, 30000);
+    }).catch(function(e){ $("thread").innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; });
+  }
+  init();
+})();
+</script>
+</body>
+</html>
