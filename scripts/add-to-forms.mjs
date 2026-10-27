@@ -11,11 +11,11 @@ import { execSync } from "node:child_process";
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf("--" + n); return i > -1 ? args[i + 1] : d; };
 const ORG = (opt("org") || "").replace(/\/$/, "");
-const CONTACT_FORM = opt("contact-form");
+const CONTACT_FORMS = (opt("contact-form") || "").split(",").map((s) => s.trim()).filter(Boolean);
 const CONVERSATION_FORMS = (opt("conversation-forms") || "").split(",").map((s) => s.trim()).filter(Boolean);
 const REMOVE = args.includes("--remove");
-if (!ORG || (!CONTACT_FORM && !CONVERSATION_FORMS.length)) {
-  console.error('Usage: node scripts/add-to-forms.mjs --org <url> [--contact-form "<form name>"] [--conversation-forms "<name>,<name>"] [--remove]');
+if (!ORG || (!CONTACT_FORMS.length && !CONVERSATION_FORMS.length)) {
+  console.error('Usage: node scripts/add-to-forms.mjs --org <url> [--contact-form "<form name>[,<form name>]"] [--conversation-forms "<name>,<name>"] [--remove]');
   process.exit(1);
 }
 
@@ -56,14 +56,17 @@ async function patchForm(entity, name, edit) {
 }
 
 const publish = [];
-if (CONTACT_FORM) {
-  const ok = await patchForm("contact", CONTACT_FORM, (xml) => {
-    if (REMOVE) return xml;
-    const i = xml.lastIndexOf("</tabs>");
-    if (i < 0) throw new Error("unexpected form XML (no </tabs>)");
-    return xml.slice(0, i) + contactTab() + xml.slice(i);
-  });
-  if (ok) publish.push("contact");
+if (CONTACT_FORMS.length) {
+  let any = false;
+  for (const name of CONTACT_FORMS) {
+    any = (await patchForm("contact", name, (xml) => {
+      if (REMOVE) return xml;
+      const i = xml.lastIndexOf("</tabs>");
+      if (i < 0) throw new Error("unexpected form XML (no </tabs>)");
+      return xml.slice(0, i) + contactTab() + xml.slice(i);
+    })) || any;
+  }
+  if (any) publish.push("contact");
 }
 if (CONVERSATION_FORMS.length) {
   let any = false;
