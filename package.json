@@ -1,6 +1,6 @@
 {
   "name": "d365-agent-initiated-sms",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "Lets a human agent start an SMS conversation from the contact record in Dynamics 365 Contact Center.",
   "type": "module",

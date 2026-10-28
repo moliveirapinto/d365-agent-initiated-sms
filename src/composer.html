@@ -47,6 +47,10 @@
   .fromBox .d{color:var(--muted);font-size:12.5px;margin-top:3px}
   .fromBox a{margin-left:auto;font-size:12px;color:var(--brand);cursor:pointer;text-decoration:none}
   .fromBox a:hover{text-decoration:underline}
+  .sendFrom{margin-top:12px;font-size:12.5px;color:var(--muted);border-left:3px solid var(--brand);padding:2px 0 2px 10px}
+  .sendFrom b{color:var(--text)}
+  .sendFrom a{color:var(--brand);cursor:pointer;margin-left:6px}
+  .sendFrom a:hover{text-decoration:underline}
   .hidden{display:none!important}
   .aiPanel{border:1px solid var(--line);background:#f8fafc;border-radius:8px;padding:8px 11px;margin-top:8px}
   .aiPanel input{flex:1}
@@ -93,6 +97,8 @@
     </div>
   </div>
   <label class="check"><input id="sig" type="checkbox" checked /> <span>Sign with my name <span id="sigName" class="hint"></span></span></label>
+
+  <div id="sendFrom" class="sendFrom hidden"></div>
 
   <div class="actions">
     <span id="status" class="hint"></span>
@@ -222,7 +228,8 @@
     if (state.sending) return;
     var c = state.contact, text = composed(), num = numberToUse();
     if (!c || !text || !num) return;
-    var cfgId = state.cfgId;
+    var cfgId = state.cfgId, fromN = selectedNumber();
+    var fromLabel = fromN ? (fromN.title ? fromN.title+" ("+pretty(fromN.number)+")" : pretty(fromN.number)) : "";
     state.sending = true; refresh(); banner("",""); $("status").textContent = "Sending…";
     var sentAt = new Date(Date.now() - 5000).toISOString();
     var prep = state.number ? Promise.resolve() : api("PATCH","contacts("+state.contactId+")",{ mobilephone:num }).then(function(){ state.number = num; $("toNum").textContent = pretty(num); $("needNum").classList.add("hidden"); refreshForm(); });
@@ -238,7 +245,7 @@
       });
     }).then(function(){
       $("status").textContent = "Sent to the carrier. Confirming delivery…";
-      confirmDelivery(num, sentAt, 0, routeWarn);
+      confirmDelivery(num, sentAt, 0, routeWarn, fromLabel);
       $("body").value = ""; refresh();
       refreshTimeline();
     }).catch(function(e){
@@ -254,7 +261,7 @@
     setTimeout(function(){ try { var x = xrm(); var tl = x && x.Page && x.Page.getControl && x.Page.getControl("Timeline"); if (tl && tl.refresh) tl.refresh(); } catch(e){} }, 6000);
   }
 
-  function confirmDelivery(num, sentAt, tries, warn){
+  function confirmDelivery(num, sentAt, tries, warn, from){
     tries = tries || 0;
     var d = num.replace(/^\+/,"");
     api("GET","msdyn_ocoutboundmessages?$select=subject,statecode,msdyn_failurereason&$top=1&$orderby=createdon desc&$filter="+encodeURIComponent("createdon gt "+sentAt+" and msdyn_ocreceiverchannelid eq '"+d+"'"))
@@ -262,12 +269,13 @@
         var m = r.value[0];
         if (m && m.statecode === 1) {
           if (!m.msdyn_failurereason && !/fail/i.test(m.subject||"")) {
-            if (warn) banner("warn","Delivered to "+esc(pretty(num))+". "+warn);
-            else banner("ok","Delivered to "+esc(pretty(num))+". Their reply will be routed to you.");
+            var via = from ? " from "+esc(from) : "";
+            if (warn) banner("warn","Delivered to "+esc(pretty(num))+via+". "+warn);
+            else banner("ok","Delivered to "+esc(pretty(num))+via+". Their reply will be routed to you.");
           } else banner("err","The carrier rejected the message: "+esc(m.msdyn_failurereason||m.subject));
           $("status").textContent = ""; refreshHistory(); return;
         }
-        if (tries < 12) setTimeout(function(){ confirmDelivery(num, sentAt, tries+1, warn); }, 2500);
+        if (tries < 12) setTimeout(function(){ confirmDelivery(num, sentAt, tries+1, warn, from); }, 2500);
         else { banner(warn?"warn":"info","Message handed off. Delivery confirmation is taking longer than usual."+(warn?" "+warn:"")); $("status").textContent=""; refreshHistory(); }
       }).catch(function(){ $("status").textContent=""; refreshHistory(); });
   }
@@ -292,7 +300,7 @@
     state.aiBusy = true; $("aiGo").disabled = true; $("aiGo").textContent = "Writing\u2026"; banner("","");
     api("POST","msdyn_aimodels("+state.promptId+")/Microsoft.Dynamics.CRM.Predict",{
       version:"2.0",
-      source: JSON.stringify({ consumptionSource:"Api", partnerSource:"AgentSmsConsole", consumptionSourceVersion:"1.2.0" }),
+      source: JSON.stringify({ consumptionSource:"Api", partnerSource:"AgentSmsConsole", consumptionSourceVersion:"1.2.1" }),
       requestv2:{ "@odata.type":"#Microsoft.Dynamics.CRM.expando",
         Customer:first, Agent: state.me ? state.me.first : "your agent",
         Task: task || "Improve my draft message", Draft: draft }
@@ -367,9 +375,21 @@
     h += '<div class="d" id="fromDesc">'+esc(sel.desc||"")+'</div>';
     box.innerHTML = h; box.classList.remove("hidden");
     $("fromDesc").classList.toggle("hidden", !sel.desc);
+    renderSendFrom(sel);
     if ($("from")) $("from").onchange = function(){ state.cfgId = this.value; renderFrom(); refresh(); };
     if ($("manage")) $("manage").onclick = openAdmin;
   }
+
+  function renderSendFrom(sel){
+    var box = $("sendFrom");
+    if (!sel) { box.classList.add("hidden"); return; }
+    var h = "Sending from <b>"+esc(sel.title || pretty(sel.number))+"</b>"+(sel.title ? " &middot; "+esc(pretty(sel.number)) : "");
+    if (sel.desc) h += "<br>"+esc(sel.desc);
+    else if (canManage()) h += '<br>No description yet.<a id="addDesc">Add a title and description</a>';
+    box.innerHTML = h; box.classList.remove("hidden");
+    if ($("addDesc")) $("addDesc").onclick = openAdmin;
+  }
+  function selectedNumber(){ return state.numbers.filter(function(n){ return n.id === state.cfgId; })[0] || state.numbers[0] || null; }
 
   function loadConfigs(){
     return Promise.all([

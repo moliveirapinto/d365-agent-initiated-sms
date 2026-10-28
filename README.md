@@ -53,10 +53,10 @@ SOURCE
 Repository (public): https://github.com/moliveirapinto/d365-agent-initiated-sms
 README (source of truth): https://raw.githubusercontent.com/moliveirapinto/d365-agent-initiated-sms/main/README.md
 Get a local copy first: git clone https://github.com/moliveirapinto/d365-agent-initiated-sms.git (or download the latest release zip from https://github.com/moliveirapinto/d365-agent-initiated-sms/releases). Work from the clone.
-Key files: scripts/install.mjs (one-command installer; it downloads the solution zip AgentSmsConsole_<version>_managed.zip from the latest release by itself, do NOT unzip it), scripts/add-to-forms.mjs (adds the panels to forms). Read the README first. If it and this prompt disagree, follow the README and tell me.
+Key files: scripts/install.mjs (one-command installer; it downloads the solution zip AgentSmsConsole_<version>_managed.zip from the latest release by itself, do NOT unzip it), scripts/add-to-forms.mjs (adds the panels to forms; "all" = every main form). Read the README first. If it and this prompt disagree, follow the README and tell me.
 
 WHAT THE SOLUTION DOES
-It adds a "Send SMS" tab to the Contact form so a human agent can start an SMS conversation, routes the customer's reply back to the agent who sent the text (preferred representative routing), and shows the whole text history on the contact and on the conversation form. It installs a managed solution "AgentSmsConsole" (3 web resources, 1 security role "Agent SMS Console User", 1 form "Contact - Agent SMS"). It does NOT replace or delete anything.
+It adds a "Send SMS" tab to the main Contact forms so a human agent can start an SMS conversation, routes the customer's reply back to the agent who sent the text (preferred representative routing), and shows the whole text history on the contact and on the conversation forms. Supervisors choose which SMS numbers agents can use on a "Manage numbers" page and give each number a title and a description; the agent sees them in a "Send from" picker and again as "Sending from ..." right above the Send SMS button. A "Write with Copilot" button drafts the text with an AI Builder prompt. It installs a managed solution "AgentSmsConsole" (4 web resources, 1 table "Agent SMS Number", 2 security roles "Agent SMS Console User" and "Agent SMS Supervisor", 1 form "Contact - Agent SMS") and creates an AI Builder prompt "Agent SMS Draft". It does NOT replace or delete anything.
 
 HOW TO WORK
 - Use the tools you have (shell, Azure CLI, Node.js, browser). If you cannot operate a browser, switch to GUIDE MODE for the browser-only steps: ONE step at a time with exact click paths, wait for me to say "done", and verify what I report.
@@ -78,14 +78,17 @@ Then show me ONE summary (environment, agents, forms that will be changed) and c
 
 PHASE 1 - PREVIEW (changes nothing)
 Run: node scripts/install.mjs --org <environment URL> --agents omnichannel --dry-run
-Show me the output. Expected: environment OK, Conversation table found, "Would import" the solution (or "Already installed"), the Contact forms (by default ALL main Contact forms, for example "Contact", "Contact form", "Contact Master", "Information", not only one) and the conversation forms listed, SMS sending either "Already set up" or "Would set up sending from <number>", and the list of agents that would get the role.
+Show me the output. Expected: environment OK, Conversation table found, "Would import" the solution (or "Already installed"), the Contact forms (by default ALL main Contact forms, for example "Contact", "Contact form", "Contact Master", "Information", not only one) and the conversation forms listed, SMS sending either "Already set up" or "Would set up sending from <number>", the Copilot prompt "Would create" or already there, and the list of agents that would get the role.
 - If it says no SMS number with outbound enabled was found: STOP. I must provision the SMS channel first (Copilot Service admin center > Channels > Phone numbers and SMS). Do not try to create channels yourself.
-- If it lists several SMS numbers: ask me which one and add --sms-number <number>.
+- If it lists several SMS numbers: ask me which one to set up first and add --sms-number <number>. The others are switched on later in Manage numbers (Phase 2b).
 
 PHASE 2 - INSTALL
-After my "yes", run the same command WITHOUT --dry-run (keep --sms-number if I chose one). It imports the solution, adds the Send SMS tab to ALL main Contact forms and the text history to ALL main conversation forms (so the tab shows whichever form the agent's app opens; the script skips portal, web, mobile, customer-card and embedded forms), creates the sending configuration for my SMS number, and gives the Agent SMS Console User role to the agents. It is safe to run again. If any step reports WARN or FAIL, show me the exact message and fix it using the README (Troubleshooting) before moving on.
+After my "yes", run the same command WITHOUT --dry-run (keep --sms-number if I chose one). It imports the solution, adds the Send SMS tab to ALL main Contact forms and the text history to ALL main conversation forms (so the tab shows whichever form the agent's app opens; the script skips portal, web, mobile, customer-card and embedded forms), creates the sending configuration for my SMS number, creates the "Agent SMS Draft" Copilot prompt, and gives the Agent SMS Console User role to the agents. It is safe to run again. If any step reports WARN or FAIL, show me the exact message and fix it using the README (Troubleshooting) before moving on.
 Then CHECK THE TAB IS REALLY THERE: list the main Contact forms in the environment (systemforms, objecttypecode contact, type 2) and confirm every one the script did not skip contains the web resource asms_/contact.html; if a form that agents open is missing it, run node scripts/add-to-forms.mjs --org <environment URL> --contact-form "<that form name>". In Phase 4, tell me which form name shows under the contact's name (e.g. "Contact form") so we know it is covered.
-Verify read-only with the Web API or by re-running the dry run: solution AgentSmsConsole is installed, role "Agent SMS Console User" exists, an outbound configuration named "Agent SMS - <number>" exists.
+Verify read-only with the Web API or by re-running the dry run: solution AgentSmsConsole is installed, roles "Agent SMS Console User" and "Agent SMS Supervisor" exist, an outbound configuration named "Agent SMS - <number>" exists, and the AI Builder prompt "Agent SMS Draft" is published (if it is missing, the Write with Copilot button is simply hidden: tell me, do not invent a workaround).
+
+PHASE 2b - TITLES AND DESCRIPTIONS FOR THE SMS NUMBERS (browser or guide mode)
+The agent sees each number's title and description before sending, so they must be filled in. Ask me, in ONE message, for a short title and a one-line description for each SMS number the installer found (for example "Appointment reminders" / "Scheduling and reminders") and which numbers agents may use. Then open any contact, select the Send SMS tab and click "Manage numbers" (you need the System Administrator or Agent SMS Supervisor role), switch on the numbers, type the titles and descriptions, and Save changes. In GUIDE MODE give me those clicks one at a time. Afterwards confirm that the "Send from" picker (or, with one number, the "Sending from" line above the Send SMS button) shows the title and description. Give the role "Agent SMS Supervisor" only to the people I name.
 
 PHASE 3 - MAKE REPLIES REACH THE SENDING AGENT (browser, in Copilot Service admin center)
 These are environment settings; the script cannot change them. Open https://admin.powerplatform.microsoft.com > Environments > my environment > Open Copilot Service admin center (or use the app URL I give you) and do, ONE at a time, each after my "yes" because they change live routing:
@@ -96,7 +99,7 @@ These are environment settings; the script cannot change them. Open https://admi
 Note: Omnichannel configuration changes can take up to 15 minutes to take effect.
 
 PHASE 4 - TEST
-Ask me to hard-refresh the app (Ctrl+F5), open a contact whose Mobile Phone is MY OWN mobile number, open the Send SMS tab, and send a test text to myself. Then ask me to reply from my phone. Confirm: the text arrived; my reply shows up as a new conversation assigned to me; the Customer Summary tab of that conversation shows the "Text message history" with my sent text above the reply. If anything fails, use the README Troubleshooting section, one check at a time.
+Ask me to hard-refresh the app (Ctrl+F5), open a contact whose Mobile Phone is MY OWN mobile number, open the Send SMS tab, check that the title and description of the number show above the Send SMS button, optionally try Write with Copilot, and send a test text to myself. Then ask me to reply from my phone. Confirm: the text arrived; my reply shows up as a new conversation assigned to me; the Customer Summary tab of that conversation shows the "Text message history" with my sent text above the reply. Also tell me the reply-routing result honestly: if the reply did not come to me, go through Phase 3 again one setting at a time. If anything fails, use the README Troubleshooting section, one check at a time.
 
 FINISH
 Give me a short summary: what was installed, what changed in the environment, what I still need to do (if anything), and how to uninstall (README, Uninstall section).
@@ -141,19 +144,21 @@ The installer does everything in order and tells you what it did:
 [1] Checking the environment
   OK   Contact Center / Omnichannel is installed
 [2] Installing the solution
-  OK   Solution imported (version 1.2.0.0)
+  OK   Solution imported (version 1.2.1.0)
 [3] Adding the Send SMS tab and the text history to your forms
   OK   Forms updated and published
 [4] Setting up SMS sending
   OK   Sending is set up from +1...
-[5] Giving agents the Agent SMS Console User role
+[5] Creating the Copilot prompt that helps agents write messages
+  OK   Prompt "Agent SMS Draft" created and published
+[6] Giving agents the Agent SMS Console User role
   OK   Role assigned to ...
 ```
 
 | Option | What it does |
 |---|---|
 | `--agents omnichannel` | Gives the role to everyone who has the **Omnichannel agent** role. Or pass e-mails: `--agents anna@contoso.com,ben@contoso.com`. |
-| `--sms-number +14165551234` | Only needed if your environment has more than one SMS number. |
+| `--sms-number +14165551234` | Only needed if your environment has more than one SMS number: it picks the first number to set up. Supervisors switch on the others later in **Manage numbers**. |
 | `--contact-forms all` | Which Contact forms get the Send SMS tab. `all` (the default) = every main Contact form agents can open, so the tab shows whichever form the app uses. Or give names, e.g. `"Contact,Contact form"`. |
 | `--conversation-forms all` | Which conversation forms get the history. `all` is the default. |
 | `--skip-forms` | Don't touch any form. Use the included **Contact - Agent SMS** form instead. |
@@ -176,7 +181,7 @@ Open the [Releases](../../releases/latest) page and download **`AgentSmsConsole_
 3. **Browse** to the zip, select **Next**, then **Import**. No connections or settings are asked for.
 4. Wait for the green "imported successfully" message (a minute or two).
 
-Prefer the command line? `pac auth create --environment https://yourorg.crm.dynamics.com` then `pac solution import --path AgentSmsConsole_1.2.0_managed.zip --publish-changes`.
+Prefer the command line? `pac auth create --environment https://yourorg.crm.dynamics.com` then `pac solution import --path AgentSmsConsole_1.2.1_managed.zip --publish-changes`.
 
 To upgrade later, import the newer zip over the old one.
 
@@ -252,7 +257,7 @@ It didn't work? Go to [Troubleshooting](#troubleshooting).
 5. Select **Send SMS** (or press Ctrl+Enter). The panel confirms the text reached the carrier and the history updates.
 6. When the customer replies, the conversation is assigned to you.
 
-**Several SMS numbers.** If your supervisor has enabled more than one number, a **Send from** picker shows each number with its title and description. With one number it is selected for you. Supervisors (and administrators) see a **Manage numbers** link that opens the admin page, where they switch numbers on or off and give each a title and description. The page needs the **Agent SMS Supervisor** role (or System Administrator).
+**Several SMS numbers.** If your supervisor has enabled more than one number, a **Send from** picker shows each number with its title and description. With one number it is selected for you. Right above the **Send SMS** button the panel repeats **Sending from: title, number and description**, so the agent can double-check which number the text goes out from before sending, and the "Delivered" message names the number that was used. A number with no title or description shows just the number; supervisors see an **Add a title and description** link next to it. Supervisors (and administrators) see a **Manage numbers** link that opens the admin page, where they switch numbers on or off and give each a title and description. The page needs the **Agent SMS Supervisor** role (or System Administrator).
 
 ![Manage numbers page, where a supervisor turns numbers on and gives each a title and description](docs/images/admin-numbers.png)
 
